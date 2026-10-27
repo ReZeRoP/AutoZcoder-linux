@@ -28,5 +28,5 @@ jobs:
       - name: Compile application and check launchers
         run: |
           python -m compileall -q zcode_gateway generator
-          bash -n packaging/fedora/build-rpm.sh
-          bash -n packaging/fedora/autozcoder
+          bash -n packaging/fedora/bootstrap.sh packaging/fedora/build-rpm.sh
+          python -m py_compile packaging/fedora/autozcoder
