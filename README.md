@@ -13,7 +13,7 @@ Upstream's original Windows-oriented documentation is preserved unchanged at
 ## Install and launch
 
 Release artifacts are intended for
-[RiZiRo/AutoZcoder-linux releases](https://github.com/RiZiRo/AutoZcoder-linux/releases).
+[ReZeRoP/AutoZcoder-linux releases](https://github.com/ReZeRoP/AutoZcoder-linux/releases).
 The RPM is built locally; CI runs Linux tests/release validation, **not an
 automated Fedora RPM build or publication**. A release may not yet be published.
 After downloading an RPM and its `SHA256SUMS` from a trusted release:

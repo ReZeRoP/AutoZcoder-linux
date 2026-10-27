@@ -20,6 +20,9 @@ Source baseline: upstream v1.2.2, commit
   were found. The original payload audit found no private-state files.
 - Parsed all 63 Python files in `zcode_gateway/` and `generator/` successfully.
 - Shell syntax and desktop-file validation passed.
+- Installed RPM `autozcoder-1.2.2-1.fc44.x86_64` verified: the installed entrypoint
+  reports 1.2.2, `rpm -V autozcoder` is clean, and all existing user-state files
+  checked against the pre-upgrade backup remain unchanged.
 - Desktop Python/GTK/WebKit imports and private Python optional-dependency imports
   passed. Pinned Wrangler reports version 4.151.0.
 - Tested shutdown callback dispatch, off-event-loop setup checks, stop without

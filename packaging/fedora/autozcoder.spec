@@ -4,7 +4,7 @@ Release:        1%{?dist}
 Summary:        Native desktop dashboard for the local ZCode API gateway
 # Local bundled RPM, not an official Fedora package. See THIRD_PARTY_NOTICES.md.
 License:        MIT AND CC-BY-NC-SA-4.0 AND LicenseRef-Bundled-Dependencies
-URL:            https://github.com/RiZiRo/AutoZcoder-linux
+URL:            https://github.com/ReZeRoP/AutoZcoder-linux
 Source0:        autozcoder-%{version}-fedora.tar.gz
 BuildArch:      x86_64
 BuildRequires:  desktop-file-utils
