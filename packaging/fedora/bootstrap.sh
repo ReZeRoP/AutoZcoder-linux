@@ -14,11 +14,16 @@ done
 "$SYSTEM_PYTHON" -c 'import sys; assert sys.version_info[:2] == (3, 14), "Fedora Python 3.14 required"'
 node -e 'if (Number(process.versions.node.split(".")[0]) < 22) throw Error("Node 22+ required")'
 mkdir -p "$BUILD"
+# Refuse aliases before sync/npm can mutate an older cache through a symlink.
+"$SYSTEM_PYTHON" "$ROOT/packaging/fedora/cache-safety.py" "$BUILD" \
+    "$BUILD/python" "$BUILD/generator-packages" "$BUILD/browsers" \
+    "$BUILD/node-tools" "$BUILD/build-tools"
 # An optional cache source is read-only. cp never hardlinks files to that source.
 if [[ -n "${AUTOZCODER_CACHE_FROM:-}" ]]; then
     SOURCE="$(realpath "$AUTOZCODER_CACHE_FROM")"
     [[ "$SOURCE" != "$(realpath "$BUILD")" ]] || { printf 'Cache source must differ from destination.\n' >&2; exit 1; }
     for name in python generator-packages browsers node-tools; do
+        "$SYSTEM_PYTHON" "$ROOT/packaging/fedora/cache-safety.py" "$SOURCE/$name"
         if [[ ! -e "$BUILD/$name" && -d "$SOURCE/$name" ]]; then
             printf 'Copying cache %s (reflinks where supported)\n' "$name"
             cp -a --reflink=auto "$SOURCE/$name" "$BUILD/$name"
@@ -53,7 +58,7 @@ fi
 mkdir -p "$BUILD/node-tools"
 # npm ci uses the committed integrity-checked lock. Reuse only a matching cache;
 # its dependency tree is validated before staging (no npx/latest resolution).
-if ! cmp -s "$ROOT/packaging/fedora/node-tools/package-lock.json" "$BUILD/node-tools/package-lock.json" || \
+if ! "$SYSTEM_PYTHON" "$ROOT/packaging/fedora/check-dependencies.py" --node-only || \
    ! (cd "$BUILD/node-tools" && npm ls --all --offline >/dev/null 2>&1); then
     cp "$ROOT/packaging/fedora/node-tools/"package*.json "$BUILD/node-tools/"
     (cd "$BUILD/node-tools" && npm ci --no-audit --no-fund)

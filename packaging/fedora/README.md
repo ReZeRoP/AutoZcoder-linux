@@ -75,7 +75,10 @@ AUTOZCODER_PYTHON_ROOT=/path/to/cpython-3.12.14-linux-x86_64-gnu \
 Only missing `python`, `generator-packages`, `browsers`, and `node-tools`
 directories are copied. Copies use `cp -a --reflink=auto`: independent files
 with copy-on-write where supported, **never hardlinks or symlinks to an old
-checkout**. Do not point the new build directory at the old one. Source code,
+checkout**. Cache-root symlinks and links escaping a cache are rejected before
+any package manager runs. Every installed Node package version is checked against
+the lock; a mismatched tree is recreated with `npm ci`. Do not point the new build
+directory at the old one. Source code,
 config, accounts, databases, logs, browser profiles and old verification reports
 are not cache inputs. Internal dependency symlinks are allowed only when they
 resolve within the final staged payload.

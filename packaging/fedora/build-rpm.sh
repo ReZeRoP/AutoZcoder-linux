@@ -40,9 +40,10 @@ rpmbuild -bb --define "_topdir $BUILD/rpmbuild" \
     "$BUILD/rpmbuild/SPECS/autozcoder.spec"
 OUT="$BUILD/release"
 mkdir -p "$OUT"
-mapfile -t RPMS < <(find "$BUILD/rpmbuild/RPMS" -name "autozcoder-$VERSION-*.rpm" -type f | sort)
-[[ ${#RPMS[@]} == 1 ]] || { printf 'Expected one matching RPM, found %s\n' "${#RPMS[@]}" >&2; exit 1; }
-cp "${RPMS[0]}" "$OUT/"
+RPM_RELATIVE="$(rpmspec --query --queryformat '%{ARCH}/%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}.rpm' "$ROOT/packaging/fedora/autozcoder.spec")"
+RPM="$BUILD/rpmbuild/RPMS/$RPM_RELATIVE"
+[[ -f "$RPM" ]] || { printf 'Expected RPM missing: %s\n' "$RPM" >&2; exit 1; }
+cp "$RPM" "$OUT/"
 cp "$STAGE/RUNTIME-MANIFEST.json" "$OUT/autozcoder-$VERSION-runtime-manifest.json"
-(cd "$OUT" && sha256sum "$(basename "${RPMS[0]}")" "autozcoder-$VERSION-runtime-manifest.json" > SHA256SUMS)
+(cd "$OUT" && sha256sum "$(basename "$RPM")" "autozcoder-$VERSION-runtime-manifest.json" > SHA256SUMS)
 printf 'Release artifacts: %s\n' "$OUT"

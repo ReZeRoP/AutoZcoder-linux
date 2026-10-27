@@ -11,7 +11,13 @@ Source baseline: upstream v1.2.2, commit
 - Main gateway + Linux regression suite: **381 passed**, one module skipped
   because system Python has no Tkinter. That legacy GUI module was run
   separately under private Python 3.12: **8 passed**.
-- Packaging regression suite: **12 passed**.
+- Packaging regression suite: **15 passed**, including tracked backup/state
+  exclusion, restrictive-mode normalization, cache symlink rejection and exact
+  transitive Node-version validation. The initially built RPM passed 12 tests;
+  the additional build-script hardening does not change its application runtime.
+- Audited the built RPM's directory modes and the installed Node cache against
+  all lock entries; no inaccessible directories or installed-version mismatches
+  were found. The original payload audit found no private-state files.
 - Parsed all 63 Python files in `zcode_gateway/` and `generator/` successfully.
 - Shell syntax and desktop-file validation passed.
 - Desktop Python/GTK/WebKit imports and private Python optional-dependency imports

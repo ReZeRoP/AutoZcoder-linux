@@ -58,6 +58,8 @@ class PackagingTests(unittest.TestCase):
         for filename in ["config.yaml", ".claude/settings.json", ".zcode/v2/credentials.json",
                          "graphify-out/graph.json", "generator/accounts-parked/test.json",
                          "generator/backups/config.yaml", "generator/gateway.db-wal",
+                         "generator/config.yaml.bak", "generator/credentials.json.bak",
+                         "generator/mail.json.backup", "generator/generator-data/pending_referral.json",
                          "generator/.env.local", "generator/mail.json", "generator/gmail.json",
                          "generator/output/a.txt", "generator/logs/session.txt",
                          "generator/.pw-profile/Preferences", "generator/private.key",
@@ -72,10 +74,62 @@ class PackagingTests(unittest.TestCase):
         target = self.temporary()
         (root / "generator").mkdir()
         (root / "generator/main.py").write_text("x = 1\n")
-        (root / "generator/mail.json").write_text('{"private":true}')
-        with patch.object(staging.subprocess, "check_output", return_value=b"generator/main.py\0generator/mail.json\0"):
+        private = ["generator/mail.json", "generator/config.yaml.bak",
+                   "generator/credentials.json.bak", "generator/generator-data/pending_referral.json"]
+        for name in private:
+            (root / name).parent.mkdir(parents=True, exist_ok=True)
+            (root / name).write_text('{"private":true}')
+        listing = ("\0".join(["generator/main.py", *private]) + "\0").encode()
+        with patch.object(staging.subprocess, "check_output", return_value=listing):
             self.assertEqual(staging.copy_sources(root, target), ["generator/main.py"])
-        self.assertFalse((target / "generator/mail.json").exists())
+        for name in private:
+            self.assertFalse((target / name).exists())
+
+    def test_restrictive_modes_are_normalized(self):
+        root = self.temporary()
+        directory = root / "private-mode"
+        directory.mkdir(mode=0o700)
+        resource = directory / "resource.json"
+        resource.write_text("{}")
+        resource.chmod(0o600)
+        executable = directory / "runner"
+        executable.write_text("#!/bin/sh\n")
+        executable.chmod(0o700)
+        staging.normalize_permissions(root)
+        self.assertEqual(directory.stat().st_mode & 0o777, 0o755)
+        self.assertEqual(resource.stat().st_mode & 0o777, 0o644)
+        self.assertEqual(executable.stat().st_mode & 0o777, 0o755)
+
+    def test_cache_aliases_are_rejected(self):
+        spec = importlib.util.spec_from_file_location("cache_safety", ROOT / "packaging/fedora/cache-safety.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        root = self.temporary()
+        source = self.temporary()
+        alias = root / "node-tools"
+        alias.symlink_to(source, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, "symlink"):
+            module.check_cache(alias)
+        with self.assertRaisesRegex(ValueError, "escapes"):
+            module.check_cache(root)
+
+    def test_transitive_node_version_must_match_lock(self):
+        spec = importlib.util.spec_from_file_location("dependency_check", ROOT / "packaging/fedora/check-dependencies.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        tools = self.temporary()
+        expected = self.temporary()
+        lock = {"packages": {"": {}, "node_modules/transitive": {"version": "1.2.3"}}}
+        for root in (tools, expected):
+            (root / "package.json").write_text("{}")
+            (root / "package-lock.json").write_text(json.dumps(lock))
+        package = tools / "node_modules/transitive"
+        package.mkdir(parents=True)
+        (package / "package.json").write_text('{"version":"1.2.4"}')
+        with self.assertRaisesRegex(ValueError, "differs from lock"):
+            module.check_node_cache(tools, expected)
+        (package / "package.json").write_text('{"version":"1.2.3"}')
+        module.check_node_cache(tools, expected)
 
     def test_merge_markers_rejected(self):
         root = self.temporary()

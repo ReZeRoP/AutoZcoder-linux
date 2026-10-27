@@ -17,12 +17,15 @@ ROOT_FILES = {"LICENSE", "README.md", "THIRD_PARTY_NOTICES.md", "config.example.
               "requirements-linux.txt"}
 PRIVATE_PARTS = {".git", ".claude", ".zcode", "graphify-out", "__pycache__", "node_modules",
                  "accounts", "accounts-parked", "accounts_parked", "logs", "log", "output",
-                 "backups", "backup", "data", "state", "cache", ".wrangler", "captures", "flows"}
+                 "backups", "backup", "data", "state", "cache", ".wrangler", "captures", "flows",
+                 "generator-data"}
 PRIVATE_NAMES = {"config.yaml", "mail.json", "gmail.json", "login.txt", "pool.json",
                  "proxies.txt", "credentials.json", "ip_country.json"}
 PRIVATE_PATTERNS = ("*.pyc", "*.pyo", "*.exe", "*.dll", "*.db*", "*.sqlite*", "*.log*",
                     "*.har", "*.out", "*.err", "*.pid", "*.pem", "*.key", ".env*",
-                    ".pw-*", "VERIFICATION*.md", "WINDOWS-MIGRATION*.md", "BUG-AUDIT-*.md")
+                    ".pw-*", "config.yaml.*", "config.local.*", "credentials.json.*",
+                    "mail.json.*", "gmail.json.*", "*.bak", "*.backup", "*~",
+                    "VERIFICATION*.md", "WINDOWS-MIGRATION*.md", "BUG-AUDIT-*.md")
 
 
 def eligible_source(relative: str) -> bool:
@@ -60,6 +63,18 @@ def check_symlinks(stage: Path) -> None:
     for path in stage.rglob("*"):
         if path.is_symlink() and not path.resolve().is_relative_to(stage.resolve()):
             raise ValueError("External runtime symlink: " + str(path.relative_to(stage)))
+
+
+def normalize_permissions(stage: Path) -> None:
+    """Public package resources must remain readable regardless of builder umask."""
+    stage.chmod(0o755)
+    for path in stage.rglob("*"):
+        if path.is_symlink():
+            continue
+        if path.is_dir():
+            path.chmod(0o755)
+        elif path.is_file():
+            path.chmod(0o755 if path.stat().st_mode & 0o111 else 0o644)
 
 
 def stage_runtime(root: Path, stage: Path, python_root: Path) -> None:
@@ -139,6 +154,7 @@ def stage_runtime(root: Path, stage: Path, python_root: Path) -> None:
                 digest = hashlib.file_digest(stream, "sha256").hexdigest()
             manifest[name] = {"size": p.stat().st_size, "sha256": digest}
     (stage / "RUNTIME-MANIFEST.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    normalize_permissions(stage)
     print(f"Staged {len(sources)} reviewed source files; {len(manifest)} total runtime entries")
 
 

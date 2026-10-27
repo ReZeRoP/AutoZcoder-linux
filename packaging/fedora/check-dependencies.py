@@ -33,6 +33,24 @@ def check_python_cache(folder: Path, lock: Path) -> None:
         raise ValueError(f"{folder}: lock mismatch; expected {expected}, found {found}")
 
 
+def check_node_cache(tools: Path, expected: Path) -> None:
+    for name in ["package.json", "package-lock.json"]:
+        if (tools / name).read_bytes() != (expected / name).read_bytes():
+            raise ValueError(f"Node cache {name} differs from committed lock")
+    packages = json.loads((expected / "package-lock.json").read_text())["packages"]
+    for relative, entry in packages.items():
+        if not relative:
+            continue
+        manifest = tools / relative / "package.json"
+        if not manifest.is_file() and entry.get("optional"):
+            continue  # npm omits optional binaries for other platforms.
+        if not manifest.is_file():
+            raise ValueError(f"Missing locked Node package: {relative}")
+        installed = json.loads(manifest.read_text())
+        if installed.get("version") != entry.get("version"):
+            raise ValueError(f"Node package version differs from lock: {relative}")
+
+
 def check_caches(python_root: Path) -> None:
     for folder, lock in [("python", "requirements.lock"),
                          ("generator-packages", "generator-requirements.lock")]:
@@ -46,9 +64,7 @@ def check_caches(python_root: Path) -> None:
     if sys.version_info[:2] != tuple(map(int, PIN["system_python"].split("."))):
         raise ValueError("Run packaging with Fedora's Python " + PIN["system_python"])
     tools = BUILD / "node-tools"
-    for name in ["package.json", "package-lock.json"]:
-        if (tools / name).read_bytes() != (ROOT / "packaging/fedora/node-tools" / name).read_bytes():
-            raise ValueError(f"Node cache {name} differs from committed lock")
+    check_node_cache(tools, ROOT / "packaging/fedora/node-tools")
     installed = json.loads((tools / "node_modules/wrangler/package.json").read_text())
     if installed["version"] != PIN["wrangler"]:
         raise ValueError("Wrong Wrangler version")
@@ -65,4 +81,7 @@ def check_caches(python_root: Path) -> None:
 
 
 if __name__ == "__main__":
-    check_caches(Path(sys.argv[1]).resolve())
+    if sys.argv[1:] == ["--node-only"]:
+        check_node_cache(BUILD / "node-tools", ROOT / "packaging/fedora/node-tools")
+    else:
+        check_caches(Path(sys.argv[1]).resolve())
