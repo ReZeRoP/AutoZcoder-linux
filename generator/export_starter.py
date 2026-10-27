@@ -22,7 +22,9 @@ import sys
 from plan_check import get_zcode_jwt, get_plan, is_start_plan, DEVICE_MID
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-GATEWAY_ACCOUNTS = r'C:\Users\Behnam\Documents\GitHub\ZcodeGate\dist\accounts'
+GATEWAY_ACCOUNTS = os.environ.get('ZAI_ACCOUNTS_DIR') or os.path.join(
+    os.environ.get('XDG_DATA_HOME', os.path.expanduser('~/.local/share')),
+    'autozcoder', 'accounts')
 
 # mirrors ZcodeGate accounts_dir.write_snapshot field order
 ORDER = [
@@ -68,7 +70,9 @@ def jwt_payload(tok):
 def collect_accounts():
     """All email:password:token lines across gen/output/accounts*.txt."""
     seen, out = set(), []
-    for path in sorted(glob.glob(os.path.join(HERE, 'output', 'accounts*.txt'))):
+    root = os.environ.get('ZAI_OUTPUT_DIR') or os.path.join(HERE, 'output')
+    paths = glob.glob(os.path.join(root, 'accounts*.txt')) + glob.glob(os.path.join(root, 'results', 'accounts*.txt'))
+    for path in sorted(set(paths)):
         with open(path, 'r', encoding='utf-8', errors='ignore') as f:
             for line in f:
                 line = line.strip()

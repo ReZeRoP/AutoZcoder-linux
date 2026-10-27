@@ -1,180 +1,113 @@
-# AutoZCoder
+# AutoZcoder Linux 1.2.2
 
-A self-hosted gateway for the **ZCode coding-plan API** (GLM-5.3 / GLM-5.3-Flash),
-bundled with an **account generator** and a **Cloudflare mail worker**.
+An **unofficial, independent Linux desktop fork** of
+[B3hnamR/AutoZcoder](https://github.com/B3hnamR/AutoZcoder), a local gateway for
+the ZCode coding-plan API with OpenAI- and Anthropic-compatible endpoints.
+This fork is not affiliated with ZCode, z.ai, or the Fedora Project.
 
-It exposes OpenAI- and Anthropic-compatible endpoints locally, pools multiple
-ZCode accounts behind one key, and can create new accounts for you on demand.
+The Linux release targets **Fedora 44 x86_64** and provides a GTK3/WebKit4.1
+desktop window, an isolated local gateway, and XDG-based configuration/state.
+Upstream's original Windows-oriented documentation is preserved unchanged at
+[docs/UPSTREAM-README.md](docs/UPSTREAM-README.md).
 
-> Unofficial, independent project. Not affiliated with ZCode or z.ai.
+## Install and launch
 
----
+Release artifacts are intended for
+[RiZiRo/AutoZcoder-linux releases](https://github.com/RiZiRo/AutoZcoder-linux/releases).
+The RPM is built locally; CI runs Linux tests/release validation, **not an
+automated Fedora RPM build or publication**. A release may not yet be published.
+After downloading an RPM and its `SHA256SUMS` from a trusted release:
 
-## What's inside
+```bash
+sha256sum --ignore-missing -c SHA256SUMS
+sudo dnf install ./autozcoder-1.2.2-1.fc44.x86_64.rpm
+autozcoder
+```
 
-| Path | What it is |
+You can also launch **AutoZcoder Linux** from the application menu. It needs a
+working graphical GTK/WebKit session. Fedora installs native runtime libraries
+and Node.js/npm as package dependencies. No Python packages or browsers are
+downloaded at RPM installation or normal startup.
+
+The desktop's default API is `http://127.0.0.1:8789/v1` and its dashboard is
+`http://127.0.0.1:8789/dash`. Use the client key from your own Server settings;
+no shared API keys or accounts are distributed. Keep the desktop open while
+using its gateway. The Linux desktop does not replace a separate gateway on
+port 8788 or start/modify an existing systemd service.
+
+| Location | Purpose |
 |---|---|
-| `zcode_gateway/` | The gateway: FastAPI app, account pool, admin/dashboard API, Windows desktop shell, web dashboard |
-| `zcode_gateway/dashboard/` | The dashboard SPA (served at `/dash`) |
-| `generator/` | The account generator: signup, captcha solving, invite claim, proxy pool |
-| `mail-worker/` | Cloudflare Email Worker that receives signup verification mail |
-| `tests/` | Offline test suite (161 tests) |
-| `tools/` | `import_account.py`, `smoke_live.py` |
-| `docs/` | Protocol notes and diagnosis write-ups |
+| `~/.config/autozcoder/config.yaml` | Per-user configuration and local API keys |
+| `~/.local/share/autozcoder/` | Accounts, database and other writable state |
+| `~/.cache/autozcoder/` | Desktop/browser cache |
+| `/usr/share/autozcoder/` | Read-only application source, templates and resources |
+| `/usr/lib64/autozcoder/` | Private Python libraries, optional runtime and tools |
 
----
+Respect the confidentiality of the XDG directories and any exported backups.
+The source checkout and public RPM do not contain private `.zcode` credentials,
+accounts, config, database, logs, browser profiles, or personal migration reports.
+Upgrade with a new RPM; upstream Windows executable self-update is disabled in
+managed Linux mode. Uninstalling the RPM does not remove your per-user data.
 
-## Quick start
+## Runtime support and limits
 
-### Run the packaged app
+- The desktop/gateway uses **Fedora Python 3.14** plus the locked Linux packages.
+  GTK, PyGObject, Cairo and WebKit come from Fedora, not pip.
+- Ordinary upstream gateway/generator/proxy helpers and the mail-worker template
+  are retained. Optional modules have a private **Python 3.12.14** environment,
+  Playwright **1.64.0**, full Chromium revision **1248**, FFmpeg revision **1013**,
+  and Wrangler **4.151.0**. The separate Chromium headless-shell is not bundled;
+  the configured runtime uses the full browser for visible and headless modes.
+- The newer upstream **CAPTCHA token minter is not ported or built for Linux**.
+  Its TypeScript sources and original license are retained for provenance, but
+  no Windows `.exe`, Bun runtime, or Linux minter binary is shipped. Features
+  that require that sidecar are unavailable out of the box. Bundling optional
+  dependencies is not a claim of full upstream automation parity.
+- No live account generation, CAPTCHA/token minting, rewards/invite claims,
+  third-party proxy scans, or cloud deployment is part of this release's build
+  verification. These workflows require appropriate service permission and
+  external configuration; do not infer service-side approval from local tests.
+- Existing upstream optional actions are not started by the packaging scripts.
+  Any cloud/mail tooling needs your own domain and service credentials. Linux
+  managed mode does not install Windows runtimes or modify system Python.
 
-Double-click `dist\ZcodeGateway.exe`. On first launch it writes its own
-`config.yaml`, `accounts/`, `logs/` and `gateway.db` **beside the executable**
-(portable — move the folder anywhere). Default port **8788**.
+## Build from source
 
-Dashboard: <http://127.0.0.1:8788/dash>
+See [packaging/fedora/README.md](packaging/fedora/README.md) for prerequisites,
+cache reuse, exact dependency locks, offline build steps and verification.
+The main flow is:
 
-### Run from source
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m zcode_gateway.main
+```bash
+bash packaging/fedora/bootstrap.sh
+bash packaging/fedora/build-rpm.sh
 ```
 
-Point any OpenAI/Anthropic client at `http://127.0.0.1:8788/v1` with the client
-key from the **Server** tab.
+Bootstrap may download the pinned assets into `build/fedora/`; the RPM build
+uses those caches without dependency downloads. Output is under
+`build/fedora/release/`: the RPM, runtime manifest, and `SHA256SUMS`.
 
-```json
-{
-  "model": "GLM-5.3-Flash",
-  "messages": [{"role": "user", "content": "Hello"}],
-  "reasoning_effort": "high",
-  "stream": true
-}
+For an isolated graphical source preview after bootstrap:
+
+```bash
+/usr/bin/python3 packaging/fedora/preview.py
 ```
 
----
+This preview uses disposable HOME/XDG directories under `build/preview/` and
+port **8790**, rather than the installed app's configuration or accounts. It is
+still the real app: do not invoke external account or cloud operations during a
+preview. `packaging/fedora/preview-complete.py` previews the staged package at
+the same preview port with separate state after a successful build.
 
-## Adding accounts
+## Licensing
 
-**Accounts → Login with Zcode** (browser approval) or **Import from Zcode app**
-(reads `~/.zcode/v2/credentials.json`). The pool reloads automatically.
+The main AutoZcoder application is MIT-licensed; see [LICENSE](LICENSE).
+**The whole source tree/RPM is not MIT-only.** The vendored
+`tools/captcha-mint/captcha-*.ts` solver is **CC BY-NC-SA 4.0** from
+TriDefender/zcode-api, including noncommercial and ShareAlike conditions.
+Other bundled libraries/browser components have their own licenses.
 
-## Generating accounts (optional)
-
-The **Generator** tab drives `generator/` — it needs a real Python (not the
-packaged exe) with the generator dependencies:
-
-```powershell
-.\.venv\Scripts\python.exe -m pip install -r generator\requirements.txt
-.\.venv\Scripts\python.exe -m playwright install chromium
-```
-
-The gateway auto-detects the bundled `generator/` folder. If you keep it
-elsewhere, set it in **Generator → Locate generator** (applies live, no restart)
-or `generator.zcodeauto_dir` in `config.yaml`.
-
-## Email for signups (optional)
-
-Signups need verification mail. Use your own domain with the bundled worker:
-
-1. Add your domain to a free Cloudflare account.
-2. **Generator → Email setup → step 2**, click **Deploy worker** — it installs
-   Node.js if missing, creates the KV namespace + secret and deploys.
-3. In Cloudflare: **Email → Email Routing → Catch-all → Send to a Worker →
-   `zai-mail`**.
-4. Back in the dashboard: **Test inbox**.
-
----
-
-## Build and test
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt -r requirements-dev.txt pyinstaller
-.\.venv\Scripts\python.exe -m pytest tests -q
-.\build-exe.ps1
-```
-
-Output: `dist\ZcodeGateway.exe` (single file, no Python needed to run).
-
-Live checks (explicit, separate from tests):
-
-```powershell
-.\.venv\Scripts\python.exe tools\smoke_live.py
-.\.venv\Scripts\python.exe tools\smoke_live.py --infer
-```
-
----
-
-## Features
-
-- OpenAI Chat Completions, legacy Completions and Models endpoints.
-- Native Anthropic Messages, streaming and non-streaming.
-- Thinking signatures, cache controls, tool blocks, images, system blocks and
-  metadata preserved on native requests; full translation for the OpenAI adapter.
-- Reasoning levels `low` / `high` / `max` (`medium`→`high`, `xhigh`→`max`).
-- Per-model token quotas, reset times and plan expiry tracking.
-- `405 / code 3012` "unusual activity" is a **per-model park**: the account is
-  skipped for that model only and the request rotates on. See
-  [docs/UNUSUAL-ACTIVITY.md](docs/UNUSUAL-ACTIVITY.md).
-- Strategies: least-in-flight, **drain-first**, round-robin, LRU, quota-aware.
-- Model overload (`529 / code 1305`) retries before output with backoff + jitter.
-- Authenticated client/admin routes, per-install keys, redacted captures (off by default).
-- One-click Cloudflare worker deploy with automatic Node.js install.
-
-### Proxy pool (generator)
-
-The generator's proxy tooling verifies every candidate against `chat.z.ai`
-itself: the auth page must load with a valid certificate **and** the Aliyun
-captcha host must be reachable. Around that gate:
-
-- **One parser** for every list shape: `ip:port`, `scheme://`, `user:pass@`,
-  provider style `host:port:user:pass`, CIDR ranges (up to /16), HTML tables
-  and JSON records (`generator/proxy_parse.py`).
-- **TCP prefilter** before any HTTPS request (measured: ~3 s/port instead of two
-  full HTTP timeouts per dead host).
-- **Health scoring** in `pool.json` — a failed check adds one, a pass removes
-  one; a proxy stays usable while its score is ≤ 3. `proxies.txt` is the
-  best-first export, so `main.py` is unchanged. Pasted proxies are `vouched`
-  and stay pending until a real check passes; only verified proxies are exported
-  or counted by the generator.
-- **Second chance** pass over timeouts/resets (recovers roughly 30% more on
-  free lists).
-- **Typed failure reasons** (timeout, refused, TLS/MITM, hijacked page,
-  wrong protocol, *your PC ran out of connections*, …) shown live in the
-  dashboard instead of a bare "0 found".
-- **Dead cache** (opt-in) so repeat scans skip hosts that just failed.
-- **Cross-process claims**: eight workers are eight processes; the claim lock
-  is a file lock, so two workers can never get the same exit IP.
-- **Per-source yield** and scan presets (`balanced` / `thorough` / `fast`).
-- **Countries** — the country of each proxy is looked up online (ip-api.com and
-  geojs.io in batches, with ipwho.is / ipinfo.io as fallbacks) and cached in
-  `ip_country.json`. Nothing is downloaded.
-
-CLI: `python generator/proxy_pool.py{ fetch | verify | recheck | pick | countries | stats | prune | clear-bad | clear-used | clear-dead }`.
-
-## Security notes
-
-- Runtime secrets (`config.yaml`, `gateway.db`, `accounts/`, `generator/mail.json`,
-  `*.har`) are gitignored — they are never part of the repo or releases.
-- The gateway binds to `127.0.0.1` by default and mints **per-install** random
-  admin/client keys on first run.
-- Credential decryption uses the Windows AES-GCM implementation via CNG. On
-  non-Windows, encrypted imports require `cryptography`.
-
-## Layout
-
-```
-AutoZCoder/
-├─ zcode_gateway/        gateway package (+ dashboard/)
-├─ generator/            account generator scripts
-├─ mail-worker/          Cloudflare Email Worker template
-├─ tests/                offline tests
-├─ tools/  docs/  assets/
-├─ config.example.yaml
-└─ build-exe.ps1
-```
-
-MIT — see [LICENSE](LICENSE).
+Read [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and the preserved
+[solver license](tools/captcha-mint/LICENSE.vendor) before redistribution.
+The RPM carries collected dependency notices in `BUNDLED-LICENSES.txt`.
+This is a locally bundled application RPM, not an official Fedora package or
+an assertion of Fedora repository-policy compliance.

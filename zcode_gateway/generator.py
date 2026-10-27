@@ -92,6 +92,7 @@ def zcodeauto_candidates(configured: str = "") -> list[Path]:
     roots.append(Path.cwd())
     add(Path.home() / "ZCODEAUTO")
     add(Path.home() / "AutoZCoder")
+    add(Path.home() / "AutoZcoder")
     for r in roots:
         add(r)
         add(r / "gen")
@@ -165,7 +166,8 @@ def _child_kwargs() -> dict:
     would pop a console window for every worker / proxy check.
     """
     if os.name != "nt":
-        return {}
+        from .linux_runtime import child_session
+        return child_session()
     si = subprocess.STARTUPINFO()
     si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
     si.wShowWindow = subprocess.SW_HIDE
@@ -184,6 +186,10 @@ def resolve_python(explicit: str = "") -> str:
         p = Path(explicit)
         if p.exists():
             return str(p)
+    from .linux_runtime import generator_python
+    packaged = generator_python()
+    if packaged:
+        return packaged
     if not getattr(sys, "frozen", False):
         return sys.executable
     import shutil
@@ -263,9 +269,13 @@ class EnvSetup:
     def _find_python(self) -> str:
         import shutil
         import glob
-        # explicit/configured path first
-        if self.python_exe and self._python_real(self.python_exe):
-            return self.python_exe
+        # Match worker precedence; never silently validate a different runtime.
+        if self.python_exe:
+            return self.python_exe if self._python_real(self.python_exe) else ""
+        from .linux_runtime import generator_python
+        packaged = generator_python()
+        if packaged:
+            return packaged if self._python_real(packaged) else ""
         # PATH (verified — the Store alias must never win)
         for cand in ("python", "python3"):
             found = shutil.which(cand)
@@ -303,6 +313,9 @@ class EnvSetup:
         Order: winget (silent, no UAC for user scope) → official installer
         download (per-user, /passive). PATH is stale afterwards, so the
         caller must re-scan, not trust os.environ."""
+        if os.name != "nt":
+            self._emit("Python must be supplied by the Linux package; reinstall AutoZcoder.")
+            return False
         self._emit("no usable Python found — installing Python 3.12 (one-time, ~70 MB)…")
         # 1) winget
         try:
@@ -415,6 +428,15 @@ class EnvSetup:
         except Exception as e:
             self._emit(f"  failed to start: {type(e).__name__}: {e}")
             return False
+        deadline = time.monotonic() + timeout
+        def watchdog():
+            while proc.poll() is None and time.monotonic() < deadline:
+                time.sleep(0.1)
+            if proc.poll() is None:
+                from .linux_runtime import stop_process
+                stop_process(proc)
+        watcher = threading.Thread(target=watchdog, daemon=True)
+        watcher.start()
         last = 0.0
         for line in proc.stdout or []:
             line = line.rstrip()
@@ -465,6 +487,12 @@ class EnvSetup:
 
     def start_install(self) -> bool:
         """Kick off the background installer thread (False if one runs)."""
+        from .linux_runtime import managed
+        if managed():
+            result = self.check()
+            self.state = "done" if result["all_ok"] else "failed"
+            self.error = "" if result["all_ok"] else "Bundled runtime is incomplete; reinstall the AutoZcoder RPM."
+            return False
         with self._lock:
             if self._thread and self._thread.is_alive():
                 return False
@@ -569,6 +597,14 @@ class PlaywrightSetup:
         except Exception as e:
             emit(f"  playwright setup failed to start: {type(e).__name__}: {e}")
             return False
+        def watchdog():
+            deadline = time.monotonic() + 1200
+            while proc.poll() is None and time.monotonic() < deadline:
+                time.sleep(0.2)
+            if proc.poll() is None:
+                from .linux_runtime import stop_process
+                stop_process(proc)
+        threading.Thread(target=watchdog, daemon=True).start()
         for line in proc.stdout or []:
             line = line.rstrip()
             if line:
@@ -579,6 +615,15 @@ class PlaywrightSetup:
     def ensure(self, python_exe: str, emit=print) -> bool:
         """Make sure `python_exe` can run Playwright + Chromium. Fast no-op
         when everything is already installed."""
+        from .linux_runtime import managed
+        if managed():
+            setup = EnvSetup()
+            setup.python_exe = python_exe
+            result = setup.check()
+            self._done = result["all_ok"]
+            if not self._done:
+                emit("Bundled browser runtime is incomplete; reinstall the AutoZcoder RPM.")
+            return self._done
         with self._lock:
             if self._done:
                 return True
@@ -741,8 +786,8 @@ class GenWorker:
         self.stopped = True
         if self.proc and self.proc.poll() is None:
             try:
-                subprocess.run(["taskkill", "/PID", str(self.proc.pid), "/T", "/F"],
-                               capture_output=True, timeout=5, **_child_kwargs())
+                from .linux_runtime import stop_process
+                stop_process(self.proc)
             except Exception:
                 pass
             try:
@@ -993,8 +1038,8 @@ class ProxyChecker:
     def stop(self):
         if self.alive():
             try:
-                subprocess.run(["taskkill", "/PID", str(self.proc.pid), "/T", "/F"],
-                               capture_output=True, timeout=5, **_child_kwargs())
+                from .linux_runtime import stop_process
+                stop_process(self.proc)
             except Exception:
                 pass
             try:
@@ -1383,8 +1428,8 @@ class ClaimJob:
         self.stopped = True
         if self.proc and self.proc.poll() is None:
             try:
-                subprocess.run(["taskkill", "/PID", str(self.proc.pid), "/T", "/F"],
-                               capture_output=True, timeout=5, **_child_kwargs())
+                from .linux_runtime import stop_process
+                stop_process(self.proc)
             except Exception:
                 pass
             try:
@@ -1422,6 +1467,8 @@ class GeneratorManager:
             pass
         self.workers: dict[str, GenWorker] = {}
         self.claims: dict[str, ClaimJob] = {}
+        self._claim_batch_lock = threading.Lock()
+        self._stop_generation = 0
         self.checker = ProxyChecker(self.gen_dir, self.python_exe,
                                     data_dir=self.data_dir)
         self._seq = 0
@@ -1438,6 +1485,7 @@ class GeneratorManager:
         self.playwright = PlaywrightSetup()
         # full first-run environment setup (python + deps + chromium)
         self.env_setup = EnvSetup()
+        self.env_setup.python_exe = self.python_exe
         # options (dashboard-editable)
         self.captcha = "manual"             # manual | ai | classic | auto
         self.captcha_strategy = "auto"      # strategy when captcha != manual
@@ -1655,9 +1703,16 @@ class GeneratorManager:
             return {"ok": False, "error": "worker source not found in this build"}
         out = Path(dest) if dest else self.data_dir.parent / "mail-worker"
         try:
-            if out.exists():
-                _sh.rmtree(out, ignore_errors=True)
-            _sh.copytree(src, out)
+            if out.resolve() == src.resolve():
+                return {"ok": False, "error": "export destination must not be the installed template"}
+            out.mkdir(parents=True, exist_ok=True)
+            for source in src.rglob('*'):
+                relative = source.relative_to(src)
+                target = out / relative
+                if source.is_dir():
+                    target.mkdir(parents=True, exist_ok=True)
+                elif source.is_file() and not target.exists():
+                    _sh.copy2(source, target)
         except OSError as e:
             return {"ok": False, "error": str(e)}
         files = sorted(p.name for p in out.rglob('*') if p.is_file())
@@ -1674,6 +1729,11 @@ class GeneratorManager:
     def _npx() -> str:
         """Full path to npx. Windows CreateProcess does NOT apply PATHEXT, so a
         bare 'npx' raises WinError 2 — always resolve through shutil.which."""
+        if os.name != "nt":
+            from .linux_runtime import runtime_root, managed
+            if managed():
+                launcher = runtime_root() / "wrangler-run"
+                return str(launcher) if launcher.is_file() else ""
         import shutil as _sh
         npx = _sh.which("npx") or _sh.which("npx.cmd") or _sh.which("npx.exe")
         if npx:
@@ -1747,6 +1807,8 @@ class GeneratorManager:
             say(f"Node.js is installed but older than {self._NODE_MIN_MAJOR} "
                 "(wrangler 4 needs >= 22) — installing a current LTS…")
 
+        if os.name != "nt":
+            return {"ok": False, "error": "Node.js 22+ and npm are required; install the Fedora nodejs and npm packages."}
         say("Node.js not found — installing it now (one time)…")
 
         # 1) winget: present on stock Win10/11; MSI install with silent flags
@@ -1823,7 +1885,11 @@ class GeneratorManager:
         info = {"worker_dir": str(wdir), "exported": wdir.is_dir(),
                 "has_url": bool(self.mail_cfg.get("inbox_url")),
                 "has_secret": bool(self.mail_cfg.get("inbox_secret")),
-                "node_ok": bool(self._npx())}
+                "node_ok": bool(self._npx()) and self._node_version_ok(),
+                "wrangler_authed": None,
+                "auth_note": "Cloudflare authorization is checked when you explicitly deploy."}
+        if os.name != "nt":
+            return info
         if not info["exported"]:
             return info
         npx = self._npx()
@@ -2766,7 +2832,15 @@ class GeneratorManager:
         return False
 
     def stop_all(self):
-        for w in self.workers.values():
+        with self._claim_batch_lock:
+            self._stop_generation += 1
+            claims = list(self.claims.values())
+        self.checker.set_auto_verify(False)
+        self.checker.stop()
+        for job in claims:
+            if job.alive():
+                job.stop()
+        for w in list(self.workers.values()):
             if w.alive():
                 w.stop()
 
@@ -2915,6 +2989,8 @@ class GeneratorManager:
         """Queue 100M claims sequentially for every starter account whose
         referral summary shows the Global Build not yet issued."""
         started, skipped, errors = [], [], []
+        with self._claim_batch_lock:
+            generation = self._stop_generation
         for info in self.pending_accounts():
             email = (info.get("email") or "").strip().lower()
             if not email:
@@ -2922,7 +2998,10 @@ class GeneratorManager:
             if any(j.email == email for j in self.claims.values()):
                 skipped.append(email)
                 continue
-            res = self.start_claim_start(email, mode=mode)
+            with self._claim_batch_lock:
+                if generation != self._stop_generation:
+                    break
+                res = self.start_claim_start(email, mode=mode)
             if res.get("started"):
                 started.append(email)
                 # throttle: wait for the job to finish before the next one

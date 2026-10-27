@@ -820,8 +820,9 @@ def claim_invite(chat_token: str, invite_code: str = 'MT9GNDQ8', log=print,
     # per-account profile: a reused profile carries the PREVIOUS account's
     # zcode session and the consent page then names the wrong user.
     tag = chat_token[-12:] if chat_token else 'x'
-    profile = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                           f'.pw-profile-inv-{tag}-{suffix}')
+    profile_root = os.environ.get('ZAI_OUTPUT_DIR') or os.path.dirname(os.path.abspath(__file__))
+    profile = os.path.join(profile_root, 'profiles', f'invite-{tag}-{suffix}')
+    os.makedirs(os.path.dirname(profile), exist_ok=True)
     os.environ['ZAI_INVITE_CODE'] = invite_code
     log('  invite: launching browser…')
 
@@ -857,7 +858,8 @@ def claim_invite(chat_token: str, invite_code: str = 'MT9GNDQ8', log=print,
         launch_kwargs['locale'] = ident['locale']
         launch_kwargs['timezone_id'] = ident['timezone_id']
         ctx = p.chromium.launch_persistent_context(
-            profile, **launch_kwargs)
+            profile, executable_path=os.environ.get('AUTOZCODER_CHROMIUM_EXECUTABLE'),
+            **launch_kwargs)
         log('  invite: browser up')
 
         def on_response(resp):

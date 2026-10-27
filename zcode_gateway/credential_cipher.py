@@ -7,8 +7,12 @@ def decrypt_aes_gcm(key: bytes, nonce: bytes, ciphertext: bytes, tag: bytes) -> 
     if len(key) != 32 or len(nonce) != 12 or len(tag) != 16:
         raise ValueError('Invalid ZCode credential cipher parameters')
     if sys.platform != 'win32':
+        from cryptography.exceptions import InvalidTag
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-        return AESGCM(key).decrypt(nonce, ciphertext + tag, None)
+        try:
+            return AESGCM(key).decrypt(nonce, ciphertext + tag, None)
+        except InvalidTag as exc:
+            raise ValueError('ZCode credential authentication failed') from exc
     from ctypes import wintypes as w
     dll = c.WinDLL('bcrypt.dll')
     ptr, ulong = c.c_void_p, w.ULONG

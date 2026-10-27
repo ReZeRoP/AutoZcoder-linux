@@ -1,0 +1,11 @@
+{
+  "system_python": "3.14",
+  "private_python": "3.12.14",
+  "architecture": "x86_64",
+  "playwright": "1.64.0",
+  "chromium_revision": "1248",
+  "ffmpeg_revision": "1013",
+  "wrangler": "4.151.0",
+  "node_minimum": 22,
+  "patchelf": "0.17.2.4"
+}

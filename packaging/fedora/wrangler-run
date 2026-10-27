@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ "${1:-}" == "wrangler" ]]; then shift; fi
+export WRANGLER_SEND_METRICS=false
+exec /usr/bin/node "$HERE/node-tools/node_modules/wrangler/bin/wrangler.js" "$@"

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=AutoZcoder Linux
+Comment=Independent local ZCode API gateway and dashboard
+Exec=/usr/bin/autozcoder
+TryExec=/usr/bin/autozcoder
+Icon=autozcoder
+Terminal=false
+Categories=Development;
+StartupNotify=true
+StartupWMClass=autozcoder

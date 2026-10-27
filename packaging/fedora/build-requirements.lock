@@ -1,0 +1,2 @@
+# Build-only tool, installed under build/fedora/build-tools (never system-wide).
+patchelf==0.17.2.4

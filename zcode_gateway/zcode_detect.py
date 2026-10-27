@@ -12,6 +12,9 @@ from __future__ import annotations
 
 import base64
 import json
+import os
+import shlex
+import shutil
 import subprocess
 import time
 from dataclasses import dataclass
@@ -33,6 +36,27 @@ def default_exe_candidates() -> list[Path]:
     """Known install locations for the Zcode desktop app, best guess first."""
     from os import environ
 
+    if os.name != "nt":
+        candidates = []
+        explicit = environ.get("ZCODE_EXECUTABLE")
+        if explicit:
+            candidates.append(Path(explicit).expanduser())
+        for command in ("zcode", "ZCode"):
+            found = shutil.which(command)
+            if found:
+                candidates.append(Path(found))
+        for desktop in (HOME / ".local/share/applications/zcode.desktop",
+                        Path("/usr/share/applications/zcode.desktop")):
+            try:
+                for line in desktop.read_text().splitlines():
+                    if line.startswith("Exec="):
+                        argv = shlex.split(line[5:])
+                        if argv and Path(argv[0]).is_absolute():
+                            candidates.append(Path(argv[0]))
+            except (OSError, ValueError):
+                pass
+        candidates.extend(sorted((HOME / "Downloads").glob("ZCode-*-linux-*.AppImage"), reverse=True))
+        return candidates
     local = Path(environ.get("LOCALAPPDATA", ""))
     candidates: list[Path] = [
         local / "Zcode" / "ZCode.exe",
@@ -114,7 +138,19 @@ _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
 def processes_running(names: tuple[str, ...] = PROCESS_NAMES) -> bool:
-    """True if any of the named Zcode processes is alive (tasklist)."""
+    """True if an official ZCode process is alive, without killing anything."""
+    if os.name != "nt":
+        for directory in Path("/proc").iterdir():
+            if not directory.name.isdigit():
+                continue
+            try:
+                argv = (directory / "cmdline").read_bytes().split(b"\0")
+                executable = Path(argv[0].decode(errors="replace")).name.lower()
+                if executable in ("zcode", "zcode.exe") or executable.startswith("zcode-") and executable.endswith(".appimage"):
+                    return True
+            except (OSError, IndexError):
+                pass
+        return False
     for name in names:
         try:
             out = subprocess.run(

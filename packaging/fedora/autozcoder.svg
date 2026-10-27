@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <title>AutoZcoder Linux independent fork</title>
+  <rect x="16" y="16" width="224" height="224" rx="48" fill="#17212d"/>
+  <path d="M98 78 48 128l50 50M158 78l50 50-50 50" fill="none" stroke="#79dfcb" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="m140 72-24 112" stroke="#edf5f8" stroke-width="12" stroke-linecap="round"/>
+</svg>

@@ -154,6 +154,12 @@ async def lifespan(app: FastAPI):
                 await task
             except (asyncio.CancelledError, Exception):
                 pass
+        generator = getattr(app.state.app_state, "generator", None)
+        if generator is not None:
+            await asyncio.to_thread(generator.stop_all)
+            checker = getattr(generator, "checker", None)
+            if checker is not None:
+                checker._auto_stop.set()
         await tokens.aclose()
         await client.aclose()
         await catalog.aclose()

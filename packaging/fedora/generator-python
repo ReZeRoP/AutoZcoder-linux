@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PYTHONPATH="$HERE/generator-packages${PYTHONPATH:+:$PYTHONPATH}"
+export PLAYWRIGHT_BROWSERS_PATH="$HERE/browsers"
+export WRANGLER_SEND_METRICS=false
+exec "$HERE/cpython/bin/python3.12" "$@"

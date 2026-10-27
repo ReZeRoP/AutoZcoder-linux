@@ -63,6 +63,10 @@ def pick_asset(assets: list[dict], name: str = EXE_NAME) -> dict | None:
     return None
 
 
+def package_managed() -> bool:
+    return os.environ.get("AUTOZCODER_PACKAGE_MANAGED") == "1"
+
+
 class UpdateChecker:
     """Background 'is there a newer release?' poller with a cached answer."""
 
@@ -83,6 +87,11 @@ class UpdateChecker:
 
     async def check(self) -> dict[str, Any]:
         """One GitHub round-trip; the result is cached either way."""
+        if package_managed():
+            self._last = {"checked_at": None, "update_available": False,
+                          "disabled": True, "package_managed": True,
+                          "note": "Update this Linux app through its RPM package."}
+            return self._last
         if not self.enabled:
             self._last = {"checked_at": None, "update_available": False,
                           "disabled": True}
@@ -166,6 +175,8 @@ async def download_update(url: str, checksum_url: str | None,
     published checksums.sha256 lists a matching SHA-256: without that check a
     tampered release (or a truncated download) would execute as the next build.
     """
+    if package_managed():
+        raise RuntimeError("This installation is RPM-managed; update through the package manager.")
     if not getattr(sys, "frozen", False):
         raise RuntimeError("self-update is only available in the exe build")
     if not checksum_url:
@@ -212,6 +223,8 @@ def apply_update(new_exe: Path) -> None:
     bootloader parent) to exit, then moves the file and starts it again. The
     caller exits right after spawning.
     """
+    if package_managed():
+        raise RuntimeError("This installation is RPM-managed; update through the package manager.")
     if not getattr(sys, "frozen", False):
         raise RuntimeError("self-update is only available in the exe build")
     current = Path(sys.executable).resolve()

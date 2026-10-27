@@ -578,6 +578,7 @@ def signup(email, password, mail=None):
 
             context = p.chromium.launch_persistent_context(
                 account_profile,
+                executable_path=os.environ.get('AUTOZCODER_CHROMIUM_EXECUTABLE'),
                 headless=is_headless,
                 args=BROWSER_ARGS,
                 proxy=pw_proxy(),

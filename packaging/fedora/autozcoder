@@ -1,0 +1,10 @@
+#!/usr/bin/python3 -s
+"""Launch AutoZcoder with RPM-private dependencies, not the user's Python paths."""
+import os
+import sys
+
+os.environ["AUTOZCODER_PACKAGE_MANAGED"] = "1"
+sys.path[:0] = ["/usr/lib64/autozcoder/python", "/usr/share/autozcoder"]
+from zcode_gateway.linux_desktop import main
+
+sys.exit(main())

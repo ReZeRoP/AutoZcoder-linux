@@ -82,6 +82,7 @@ def main():
               f'cc={ident["country"]} · tz={ident["timezone_id"]}')
         ctx = p.chromium.launch_persistent_context(
             PROFILE_DIR,
+            executable_path=os.environ.get('AUTOZCODER_CHROMIUM_EXECUTABLE'),
             headless=False,
             args=BROWSER_ARGS,
             viewport=ident['viewport'],

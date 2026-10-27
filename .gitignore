@@ -1,60 +1,87 @@
-# ---- secrets & runtime data (never commit) ----
+# Secrets and private runtime state (never commit or copy into release payloads).
+.claude/
+graphify-out/
+.zcode/
 config.yaml
-gateway.db
-gateway.db-*
-pool.json
+config.yaml.*
+config.local.*
+!config.example.yaml
 accounts/
+accounts-parked/
+accounts_parked/
+backups/
+backup/
 logs/
+log/
 output/
-generator-data/
-
-# generator runtime
-generator/mail.json
-generator/gmail.json
-generator/login.txt
-generator/output/
-generator/*.out
-generator/*.err
-generator/.pw-*
-
-# mail-worker runtime
-mail-worker/node_modules/
-mail-worker/.wrangler/
-mail-worker/package-lock.json
-
-# captures / diagnostics
-*.har
+data/
+state/
+cache/
 captures/
 flows/
+generator-data/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.log
+*.log.*
+*.pid
+*.har
+*.pem
+*.key
+.env
+.env.*
+!.env.example
+pool.json
+credentials.json
+credentials.json.*
+mail.json
+gmail.json
+login.txt
+proxies.txt
+ip_country.json
+*.out
+*.err
 run-*.txt
-run.pid
-docs/BUG-AUDIT-*.md
+.pw-*/
+.pw-profile*/
+.wrangler/
 
-# ---- python ----
+# Python / Node dependencies and caches.
 __pycache__/
 *.py[cod]
 *.egg-info/
-.venv/
+.venv*/
 venv/
-.env
+node_modules/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.coverage
+htmlcov/
+mail-worker/package-lock.json
 
-# ---- build artifacts ----
+# Source-only repository. Keep the reviewed RPM spec and committed Node lock.
 build/
 dist/
 dist-backup*/
+*.rpm
+*.tar.gz
 *.spec
-*.new.exe
+!packaging/fedora/*.spec
+*.exe
+*.dll
 
-# ---- os / editors ----
+# Personal migration and verification reports are not project documentation.
+VERIFICATION*.md
+WINDOWS-MIGRATION*.md
+docs/BUG-AUDIT-*.md
+
+# Editors and operating systems.
 Thumbs.db
 Desktop.ini
 .DS_Store
 .idea/
 .vscode/
-
-# captcha mint sidecar (built, not committed)
-tools/captcha-mint/node_modules/
-tools/captcha-mint/captcha-mint.exe

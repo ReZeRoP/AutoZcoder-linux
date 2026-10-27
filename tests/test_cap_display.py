@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+pytest.importorskip("tkinter", reason="legacy Tk GUI is not used by the GTK desktop")
 from zcode_gateway import gui
 
 

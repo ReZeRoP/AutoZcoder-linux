@@ -291,6 +291,9 @@ def test_apply_update_quotes_paths_via_environment(tmp_path, monkeypatch):
         return None
 
     monkeypatch.setattr(updater_mod.subprocess, "Popen", fake_popen)
+    # The swapper is mocked, so supply the Windows flags on Linux test hosts.
+    monkeypatch.setattr(updater_mod.subprocess, "DETACHED_PROCESS", 8, raising=False)
+    monkeypatch.setattr(updater_mod.subprocess, "CREATE_NEW_PROCESS_GROUP", 512, raising=False)
 
     updater_mod.apply_update(new_exe)
 

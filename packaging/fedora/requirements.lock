@@ -1,0 +1,94 @@
+# Fedora 44 / Python 3.14 release lock. Existing versions intentionally retained.
+# Refresh deliberately: uv pip compile --python /usr/bin/python3 requirements-linux.txt
+#   --output-file packaging/fedora/requirements.lock
+annotated-doc==0.0.5
+    # via fastapi
+annotated-types==0.8.0
+    # via pydantic
+anyio==4.15.1
+    # via
+    #   httpx
+    #   starlette
+    #   watchfiles
+bottle==0.13.4
+    # via pywebview
+certifi==2026.10.19
+    # via
+    #   -r requirements-linux.txt
+    #   httpcore
+    #   httpx
+    #   requests
+cffi==2.1.1
+    # via cryptography
+charset-normalizer==3.5.2
+    # via requests
+click==8.5.0
+    # via uvicorn
+cryptography==50.0.2
+    # via -r requirements-linux.txt
+fastapi==0.159.0
+    # via -r requirements-linux.txt
+h11==0.16.0
+    # via
+    #   httpcore
+    #   uvicorn
+httpcore==1.0.9
+    # via httpx
+httptools==0.9.0
+    # via uvicorn
+httpx==0.28.1
+    # via -r requirements-linux.txt
+idna==3.20
+    # via
+    #   anyio
+    #   httpx
+    #   requests
+opentelemetry-api==1.45.1
+    # via fastapi
+proxy-tools==0.1.0
+    # via pywebview
+pycparser==3.11
+    # via cffi
+pydantic==2.14.1
+    # via
+    #   -r requirements-linux.txt
+    #   fastapi
+pydantic-core==2.50.1
+    # via pydantic
+python-dotenv==1.2.4
+    # via uvicorn
+pywebview==6.2.1
+    # via -r requirements-linux.txt
+pyyaml==6.0.3
+    # via
+    #   -r requirements-linux.txt
+    #   uvicorn
+requests==2.34.2
+    # via -r requirements-linux.txt
+starlette==1.9.0
+    # via fastapi
+truststore==0.10.5
+    # via -r requirements-linux.txt
+typing-extensions==4.16.0
+    # via
+    #   anyio
+    #   fastapi
+    #   opentelemetry-api
+    #   pydantic
+    #   pydantic-core
+    #   pywebview
+    #   typing-inspection
+typing-inspection==0.4.4
+    # via
+    #   fastapi
+    #   pydantic
+urllib3==2.8.0
+    # via requests
+uvicorn==0.54.0
+    # via -r requirements-linux.txt
+uvloop==0.23.0
+    # via uvicorn
+watchfiles==1.3.0
+    # via uvicorn
+websockets==17.3
+    # via uvicorn

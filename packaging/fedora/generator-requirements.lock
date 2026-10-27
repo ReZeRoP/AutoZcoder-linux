@@ -1,0 +1,52 @@
+# Private Python 3.12 release lock. Existing versions intentionally retained.
+# Refresh deliberately: uv pip compile --python /path/to/python3.12 generator/requirements.txt
+#   --output-file packaging/fedora/generator-requirements.lock
+certifi==2026.10.19
+    # via
+    #   -r generator/requirements.txt
+    #   requests
+charset-normalizer==3.5.2
+    # via requests
+ddddocr==1.6.1
+    # via -r generator/requirements.txt
+flatbuffers==25.12.19
+    # via onnxruntime
+greenlet==3.5.6
+    # via playwright
+idna==3.20
+    # via requests
+numpy==2.5.4
+    # via
+    #   -r generator/requirements.txt
+    #   ddddocr
+    #   onnxruntime
+    #   opencv-python
+    #   opencv-python-headless
+onnxruntime==1.31.0
+    # via ddddocr
+opencv-python==5.0.0.93
+    # via -r generator/requirements.txt
+opencv-python-headless==5.0.0.93
+    # via ddddocr
+packaging==26.3
+    # via onnxruntime
+pillow==13.0.0
+    # via
+    #   -r generator/requirements.txt
+    #   ddddocr
+playwright==1.64.0
+    # via -r generator/requirements.txt
+protobuf==7.36.2
+    # via onnxruntime
+pyee==14.0.0
+    # via playwright
+pysocks==1.7.1
+    # via -r generator/requirements.txt
+requests==2.34.2
+    # via -r generator/requirements.txt
+typing-extensions==4.16.0
+    # via pyee
+urllib3==2.8.0
+    # via
+    #   -r generator/requirements.txt
+    #   requests

@@ -11,6 +11,8 @@ import asyncio
 import json
 import logging
 import os
+import secrets
+import tempfile
 import sys
 import threading
 from pathlib import Path
@@ -164,6 +166,11 @@ def dashboard(request: Request) -> HTMLResponse:
             html = html.replace(marker, injected, 1)
     except Exception:
         pass
+    if os.environ.get("AUTOZCODER_PACKAGE_MANAGED") == "1":
+        html = html.replace(r'C:\path\to\ZCODEAUTO', '/usr/share/autozcoder/generator')
+        html = html.replace('check GitHub for new releases', 'RPM-managed: update by installing a newer AutoZcoder RPM')
+        html = html.replace('deploying will install it automatically (one time; Windows may ask for the admin prompt)',
+                            'install the Fedora nodejs and npm packages before deploying')
     return HTMLResponse(html)
 
 
@@ -206,7 +213,10 @@ async def dash_settings(request: Request, key: str = Depends(admin_key)) -> dict
         "admin_key": cfg.server.admin_key,
         "client_keys": [k.model_dump() for k in cfg.server.client_keys],
         "accounts_source": cfg.accounts.source,
-        "choices": {path: [{"value": v, "label": lab, "desc": desc} for v, lab, desc in opts]
+        "choices": {path: [{"value": v, "label": lab, "desc": desc}
+                           for v, lab, desc in opts
+                           if not (os.environ.get("AUTOZCODER_PACKAGE_MANAGED") == "1"
+                                   and path == "server.host" and v not in _LOOPBACK_HOSTS)]
                     for path, opts in _CHOICES.items()},
         "models": _model_ids(state),
     }
@@ -262,6 +272,11 @@ async def dash_settings_put(request: Request, body: dict = Body(...),
         if dotted == "models.default_effort" and val not in ("low", "high", "max"):
             raise HTTPException(status_code=400,
                                 detail="models.default_effort must be low, high, or max")
+        if (dotted == "server.host"
+                and os.environ.get("AUTOZCODER_PACKAGE_MANAGED") == "1"
+                and val not in _LOOPBACK_HOSTS):
+            raise HTTPException(status_code=400,
+                                detail="the desktop gateway must bind to a loopback address")
         allowed = _CHOICES.get(dotted)
         if allowed and dotted != "server.host":     # host may be any name/address
             probe = val.upper() if dotted == "logging.level" else val
@@ -310,22 +325,46 @@ async def dash_settings_put(request: Request, body: dict = Body(...),
     return {"changed": changed, "restart_required": bool(changed)}
 
 
+@router.post("/admin/dash/settings/keys/rotate")
+async def rotate_keys(request: Request, body: dict = Body(...),
+                      key: str = Depends(admin_key)) -> dict:
+    """Persist new keys; current sessions remain authorized until restart."""
+    if body.get("confirmed") is not True:
+        raise HTTPException(status_code=400, detail="explicit confirmation required")
+    state = get_state(request)
+    path = _config_path(state)
+    if path is None:
+        raise HTTPException(status_code=409, detail="no configuration file")
+    raw = _read_config_raw(path)
+    if not raw or not isinstance(raw.get("server"), dict):
+        raise HTTPException(status_code=409, detail="configuration is unreadable; refusing to overwrite")
+    server = raw["server"]
+    server["admin_key"] = "gw-admin-" + secrets.token_hex(24)
+    keys = server.setdefault("client_keys", [])
+    if keys:
+        keys[0]["key"] = "gw-client-" + secrets.token_hex(24)
+    else:
+        keys.append({"key": "gw-client-" + secrets.token_hex(24), "name": "desktop"})
+    fd, temporary = tempfile.mkstemp(prefix=path.name + ".", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            yaml.safe_dump(raw, fh, sort_keys=False)
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+    return {"rotated": True, "restart_required": True,
+            "note": "New keys apply after restarting AutoZcoder; existing keys remain active until then."}
+
+
 @router.post("/admin/dash/import")
 async def dash_import(request: Request, key: str = Depends(admin_key)) -> dict:
     """Snapshot every logged-in Zcode account into the accounts folder."""
     state = get_state(request)
-    try:
-        # Helpers live in paths.py (tkinter-free) — importing them directly
-        # works from source AND from a packaged exe (gui.py only exists in the
-        # compiled PYZ there, so reading its source off disk always failed).
-        from .paths import _zcode_providers
-        from .zcode_accounts import import_credentials
-    except Exception as exc:  # pragma: no cover - headless build
-        raise HTTPException(status_code=500,
-                            detail=f"import helper unavailable: {exc}") from exc
+    from .zcode_accounts import import_credentials
 
     def _import():
-        return import_credentials(_zcode_providers(), out_dir)
+        return import_credentials(Path(state.cfg.accounts.providers_json), out_dir)
 
     try:
         out_dir = Path(state.cfg.accounts.dir)
@@ -445,7 +484,11 @@ async def dash_shutdown(request: Request, key: str = Depends(admin_key)) -> dict
     the windowless process running, which is exactly the bug this fixes.
     """
     get_state(request)
-    threading.Timer(1.0, lambda: os._exit(0)).start()
+    shutdown = getattr(request.app.state, "desktop_shutdown", None)
+    if shutdown is not None:
+        threading.Timer(1.0, shutdown).start()
+    else:
+        threading.Timer(1.0, lambda: os._exit(0)).start()
     return {"stopping": True,
             "note": "the gateway process is exiting; you can close this window"}
 
@@ -949,9 +992,12 @@ def _generator(request: Request):
         gc = state.cfg.generator
         # Portable install: worker output (accounts/plans/proxies) lives beside
         # the exe in ./generator-data; a source checkout uses ZCODEAUTO's output/.
-        data_dir = (Path(sys.executable).resolve().parent / "generator-data"
-                    if getattr(sys, "frozen", False)
-                    else gen_dir / "output")
+        if os.environ.get("AUTOZCODER_PACKAGE_MANAGED") == "1":
+            data_dir = Path(state.cfg.accounts.dir).resolve().parent / "generator-data"
+        else:
+            data_dir = (Path(sys.executable).resolve().parent / "generator-data"
+                        if getattr(sys, "frozen", False)
+                        else gen_dir / "output")
         mgr = GeneratorManager(gen_dir, on_account=register_account,
                                python_exe=getattr(gc, "python_exe", ""),
                                data_dir=data_dir)
@@ -1007,42 +1053,35 @@ def _generator(request: Request):
         except Exception:
             log.warning("could not wire gateway-key for AI captcha", exc_info=True)
         # defaults come from config.yaml; '' invite_code would mean "off", but
-        # the shipped default is the project's referral code. claim500 wins
-        # over claim when both would be on (the dashboard offers one dropdown).
-        # The claim type seeds from config on the FIRST run only: afterwards
-        # the dashboard's saved choice wins (re-seeding every start reverted
-        # it, and set_options() below then persisted the reverted value).
+        # the shipped default is the project's referral code. Seed all choices
+        # once; loading a packaged dashboard must preserve saved user options.
         if not mgr._has_saved_options:
             mgr.claim = bool(gc.claim) and not bool(getattr(gc, "claim500", False))
             mgr.claim500 = bool(getattr(gc, "claim500", False))
             mgr.claim_start = bool(getattr(gc, "claim_start", True))
-        mgr._invite_code = gc.invite_code
-        if gc.captcha in ("auto", "manual", "ai", "classic") and not mgr._has_saved_options:
-            # First run only (no generator_options.json yet): seed from
-            # config.yaml. On later runs the dashboard's SAVED choice wins —
-            # overriding every start reset the user's "ai" back to config's
-            # "manual" while captcha_strategy stayed "ai" (inconsistent pair).
-            mgr.captcha = gc.captcha
-        mgr.headless = bool(gc.headless) and mgr.captcha != "manual"
-        mgr.set_options(ip_source="direct",
-                        proxy_types=GeneratorManager.normalize_proxy_types(
-                            gc.proxy_types, legacy_socks_only=gc.socks_only))
+            mgr._invite_code = gc.invite_code
+            if gc.captcha in ("auto", "manual", "ai", "classic"):
+                mgr.captcha = gc.captcha
+            mgr.headless = bool(gc.headless) and mgr.captcha != "manual"
+            mgr.set_options(ip_source="direct",
+                            proxy_types=GeneratorManager.normalize_proxy_types(
+                                gc.proxy_types, legacy_socks_only=gc.socks_only))
         state.generator = mgr
 
         # catch-up: signups that never reached the pool (gateway was closed, or
         # a registration step errored) are registered now instead of being lost
-        try:
-            pending = mgr.pending_accounts()
-            if pending:
-                log.info("generator: registering %d account(s) found on disk",
-                         len(pending))
-                for info in pending:
-                    threading.Thread(target=register_account, args=(info,),
-                                     daemon=True).start()
-        except Exception:
-            log.exception("generator: catch-up scan failed")
-
-        _start_referral_finisher(mgr)
+        if state.cfg.generator.enabled:
+            try:
+                pending = mgr.pending_accounts()
+                if pending:
+                    log.info("generator: registering %d account(s) found on disk",
+                             len(pending))
+                    for info in pending:
+                        threading.Thread(target=register_account, args=(info,),
+                                         daemon=True).start()
+            except Exception:
+                log.exception("generator: catch-up scan failed")
+            _start_referral_finisher(mgr)
     return mgr
 
 
@@ -1182,6 +1221,7 @@ def _env_setup_shared(request: Request):
     if cached is None:
         from .generator import EnvSetup
         cached = EnvSetup()
+        cached.python_exe = state.cfg.generator.python_exe
         state._env_setup = cached
     return cached
 
@@ -1196,7 +1236,7 @@ async def setup_check(request: Request, key: str = Depends(admin_key)) -> dict:
 async def setup_install(request: Request, key: str = Depends(admin_key)) -> dict:
     """Kick off (or retry) the background environment installer."""
     es = _env_setup_shared(request)
-    started = es.start_install()
+    started = await asyncio.to_thread(es.start_install)
     return {"started": started, "status": es.status()}
 
 
@@ -1215,7 +1255,9 @@ async def generator_stop(request: Request, body: dict = Body(...),
 
 @router.post("/admin/dash/generator/stopall")
 async def generator_stopall(request: Request, key: str = Depends(admin_key)) -> dict:
-    _generator(request).stop_all()
+    manager = getattr(get_state(request), "generator", None)
+    if manager is not None:
+        await asyncio.to_thread(manager.stop_all)
     return {"ok": True}
 
 

@@ -1692,7 +1692,10 @@ api_key: ${esc(s.admin_key)}   # or any client key</p>
     if (!(await confirmDlg("Regenerate keys?",
         "The admin key and first client key change.\nClients using the old keys stop working. Restart required.",
         "Regenerate", true))) return;
-    toast("key rotation stays in the desktop launcher for now (it also restarts the gateway).", "warn");
+    try {
+      await api("/admin/dash/settings/keys/rotate", {method:"POST", body:{confirmed:true}});
+      toast("new keys saved — restart AutoZcoder to activate them", "ok");
+    } catch (e) { toast("key rotation: " + e.message, "err"); }
   }
 
   /* ------------ tab: stats ------------ */
