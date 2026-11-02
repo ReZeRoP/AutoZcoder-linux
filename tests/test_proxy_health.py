@@ -1,6 +1,4 @@
-"""The proxy tiles and the "Proxy pool" card must agree, and must read the
-fields pool.json really has (the card used to read keys that do not exist and
-reported every proxy as unverified)."""
+"""Studio proxy health and checker counters use the same verified storage."""
 import json
 import time
 
@@ -78,7 +76,7 @@ def test_checker_tiles_add_up_to_the_pool(tmp_path):
     assert s["healthy"] + s["failing"] + s["unverified"] + s["used"] + s["bad"] == s["pool_json"]
 
 
-def test_pool_card_endpoint_reads_the_real_fields(tmp_path):
+def test_studio_pool_health_endpoint_reads_real_fields(tmp_path):
     cfg = Config(server={"host": "127.0.0.1", "port": 8788, "admin_key": "adm-test",
                          "client_keys": [{"key": "cli-test", "name": "local"}]},
                  accounts={"source": "accounts_dir", "dir": str(tmp_path / "accounts")},

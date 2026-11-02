@@ -1,6 +1,6 @@
 Name:           autozcoder
-Version:        1.3.0
-Release:        11%{?dist}
+Version:        2.0.0
+Release:        1%{?dist}
 Summary:        Native desktop dashboard for the local ZCode API gateway
 # Local bundled RPM, not an official Fedora package. See THIRD_PARTY_NOTICES.md.
 License:        MIT AND CC-BY-NC-SA-4.0 AND LicenseRef-Bundled-Dependencies
@@ -39,6 +39,7 @@ Requires:       libX11
 Requires:       libXext
 Requires:       libXft
 Requires:       libXrender
+Requires:       xorg-x11-server-Xvfb
 Requires:       libxcb
 Requires:       libstdc++
 Requires:       libgcc

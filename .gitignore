@@ -34,6 +34,11 @@ generator-data/
 .env
 .env.*
 !.env.example
+!.env.sample
+.dev.vars
+.dev.vars.*
+tools/captcha-mint/captcha-mint
+ZcodeGateway.new.exe.sha256
 pool.json
 credentials.json
 credentials.json.*
@@ -65,6 +70,7 @@ mail-worker/package-lock.json
 
 # Source-only repository. Keep the reviewed RPM spec and committed Node lock.
 build/
+.local/
 dist/
 dist-backup*/
 *.rpm
@@ -73,6 +79,15 @@ dist-backup*/
 !packaging/fedora/*.spec
 *.exe
 *.dll
+
+# Retained upstream source scripts, not private account/build directories.
+!scripts/accounts/
+scripts/accounts/*
+!scripts/accounts/import_account.py
+!scripts/build/
+scripts/build/*
+!scripts/build/linux.sh
+!scripts/build/windows.ps1
 
 # Local Codex handoff may contain machine-specific operational context.
 /CODEX_HANDOFF.md

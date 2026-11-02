@@ -23,6 +23,7 @@ def entries(tmp_path):
     manager = RelayManager(tmp_path)
     first = manager.add_relay("one", "https://one.example", "cloudflare")
     second = manager.add_relay("two", "https://two.example", "vercel")
+    manager.update_options(enabled=True)
     return manager, first, second
 
 
@@ -283,6 +284,7 @@ def test_legacy_active_url_applies_models_and_exclusions(tmp_path):
     assert not manager.relay_required_for_model("GLM-5.3")
     settings = manager.get_settings()
     settings["active_url"] = "https://old.example"
+    settings["enabled"] = True
     manager.save_settings(settings)
     assert manager.relay_required_for_model("GLM-5.3")
     assert manager.get_relay_for_model("GLM-5.3") == settings["active_url"]

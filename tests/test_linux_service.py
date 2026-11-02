@@ -227,8 +227,14 @@ def test_instance_three_loopback_checks(private_home, bind, host, peer, expected
             assert client.get("/ready").status_code == 503
             assert client.get("/health").status_code == 200
         auth = {"Authorization": "Bearer " + cfg.server.admin_key}
-        assert client.get("/admin/dash/lifecycle").status_code == 403
-        assert client.get("/admin/dash/lifecycle", headers=auth).json()["instance_id"] == "a" * 32
+        assert client.get("/admin/dash/lifecycle").status_code == (400 if host == "evil.test" else 403)
+        authenticated = client.get("/admin/dash/lifecycle", headers=auth)
+        if host == "evil.test":
+            assert authenticated.status_code == 400
+        elif peer == "192.0.2.5":
+            assert authenticated.status_code == 403
+        else:
+            assert authenticated.json()["instance_id"] == "a" * 32
 
 
 def test_autostart_mode_boolean_and_exact_controller(private_home, monkeypatch):

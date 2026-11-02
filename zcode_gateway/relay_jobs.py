@@ -116,6 +116,10 @@ def _prepare(relay_type: str, params: dict) -> tuple[str, dict]:
             raise DeploymentJobError(400, "missing_credentials", "Deno API token and organization domain are required.")
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]{0,252}", payload["org_domain"]):
             raise DeploymentJobError(400, "invalid_organization", "The Deno organization domain is invalid.")
+    if "secret" in params:
+        payload["secret"] = value("secret")
+        if any(c in payload["secret"] for c in "\r\n\0"):
+            raise DeploymentJobError(400, "invalid_deployment", "Relay secret contains control characters.")
     return provider, payload
 
 
@@ -225,7 +229,7 @@ class RelayDeploymentJobs:
             name_key = "app_name" if provider == "deno" else "project_name"
             name = payload[name_key] or f"{provider}-relay-{int(time.time())}"
             payload[name_key] = name
-            tokens = tuple(value for key, value in payload.items() if "token" in key)
+            tokens = tuple(value for key, value in payload.items() if "token" in key or key == "secret")
             public_name = name if not any(token and token in name for token in tokens) else f"{provider}-relay"
             job = {"id": operation_id, "provider": provider, "name": public_name,
                    "status": "running", "phase": "starting", "started_at": time.time(),
@@ -259,7 +263,7 @@ class RelayDeploymentJobs:
 
     def _launch(self, record: dict, payload: dict, *, register_only: bool = False) -> None:
         def credentials():
-            return tuple(value for key, value in payload.items() if "token" in key)
+            return tuple(value for key, value in payload.items() if "token" in key or key == "secret")
 
         def on_phase(phase: str, **fields):
             with self._lock:
@@ -310,7 +314,7 @@ class RelayDeploymentJobs:
             control.check()
             if not register_only:
                 result = self._deploy(record["job"]["provider"], payload, control)
-                credentials = tuple(value for key, value in payload.items() if "token" in key)
+                credentials = tuple(value for key, value in payload.items() if "token" in key or key == "secret")
                 safe = _safe_remote(result if isinstance(result, dict) else {}, credentials)
                 with self._lock:
                     record["job"]["remote"].update(_safe_remote(control.remote, credentials))
@@ -321,6 +325,8 @@ class RelayDeploymentJobs:
                 control.mutation_attempted = True
                 record["registration"] = {"name": safe.get("name") or record["job"]["name"],
                                           "url": safe["url"], "type_name": record["job"]["provider"]}
+                if isinstance(result.get("secret"), str):
+                    record["registration"]["secret"] = result["secret"]
                 result = None
                 credentials = ()
             with self._lock:
@@ -336,12 +342,14 @@ class RelayDeploymentJobs:
                     record["job"].update(status="registration_failed", phase="finished",
                                          finished_at=time.time(), error={"code": "registration_failed", "message": ERROR_MESSAGES["registration_failed"]})
                 else:
+                    public_entry = copy.deepcopy(entry)
+                    public_entry.pop("secret", None)
                     record["job"].update(status="succeeded", phase="finished", finished_at=time.time(),
-                                         error=None, result={"relay": copy.deepcopy(entry)})
+                                         error=None, result={"relay": public_entry})
                     record["registration"] = None
         except Exception as exc:
             with self._lock:
-                credentials = tuple(value for key, value in payload.items() if "token" in key)
+                credentials = tuple(value for key, value in payload.items() if "token" in key or key == "secret")
                 record["job"]["remote"].update(_safe_remote(control.remote, credentials))
                 record["job"]["remote"].update(_safe_remote(getattr(exc, "remote", {}) or {}, credentials))
                 self._failed(record, exc, control)

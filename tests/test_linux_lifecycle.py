@@ -86,22 +86,25 @@ def test_first_config_is_complete_before_publication(tmp_path, monkeypatch):
 
 def test_stopall_cancels_pending_batch_without_starting_next(tmp_path, monkeypatch):
     mgr = GeneratorManager(tmp_path / "source", data_dir=tmp_path / "data")
-    monkeypatch.setattr(mgr, "pending_accounts", lambda: [
+    monkeypatch.setattr(mgr, "unclaimed_accounts", lambda: [
         {"email": "first@example.invalid"}, {"email": "second@example.invalid"}])
     launched = []
     class Job:
         email = "first@example.invalid"
         running = True
+        done = threading.Event()
+        result = {}
         def alive(self):
             return self.running
         def stop(self):
             self.running = False
+            self.done.set()
     def start(email, mode):
         launched.append(email)
         mgr.claims["fake"] = Job()
         return {"started": "fake"}
     monkeypatch.setattr(mgr, "start_claim_start", start)
-    monkeypatch.setattr("zcode_gateway.generator.time.sleep", lambda seconds: mgr.stop_all())
+    monkeypatch.setattr(mgr._claim_all_cancel, "wait", lambda seconds: (mgr.stop_all(), True)[1])
     result = mgr.claim_all_pending()
     assert launched == ["first@example.invalid"]
     assert result["started"] == launched

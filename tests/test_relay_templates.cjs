@@ -15,14 +15,15 @@ values={}
 for node in p.body:
     if isinstance(node,ast.Assign):
         names=[n.id for n in node.targets if isinstance(n,ast.Name)]
-        if any(n in ('_RELAY_HANDLER','CLOUDFLARE_WORKER_CODE','VERCEL_RELAY_CODE','DENO_RELAY_CODE') for n in names):
+        if any(n in ('RELAY_GUARD_JS','_RELAY_HANDLER','CLOUDFLARE_WORKER_CODE','VERCEL_RELAY_CODE','DENO_RELAY_CODE') for n in names):
             exec(compile(ast.Module(body=[node],type_ignores=[]),'<template>','exec'),{},values)
-print(json.dumps({k: v for k,v in values.items() if k != '_RELAY_HANDLER'}))
+print(json.dumps({k: v.replace('__RELAY_SECRET__', '').replace('__RELAY_ALLOW__', 'provider.example')
+                 for k,v in values.items() if k not in ('_RELAY_HANDLER', 'RELAY_GUARD_JS')}))
 `], {cwd: root, encoding: 'utf8'}));
 
 function loadTemplate(source, fetch) {
   let handler;
-  const context = {Headers, Request, Response, fetch,
+  const context = {Headers, Request, Response, URL, fetch,
     Deno: {serve(fn) { handler = fn; }},
     setDefault(value) { handler = typeof value === 'function' ? value : value.fetch; }};
   source = source.replace('export const config', 'const config')

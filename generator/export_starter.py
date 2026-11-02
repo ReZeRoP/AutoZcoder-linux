@@ -22,7 +22,7 @@ import sys
 from plan_check import get_zcode_jwt, get_plan, is_start_plan, DEVICE_MID
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-GATEWAY_ACCOUNTS = os.environ.get('ZAI_ACCOUNTS_DIR') or os.path.join(
+GATEWAY_ACCOUNTS = os.environ.get('ZCODE_GATEWAY_ACCOUNTS') or os.environ.get('ZAI_ACCOUNTS_DIR') or os.path.join(
     os.environ.get('XDG_DATA_HOME', os.path.expanduser('~/.local/share')),
     'autozcoder', 'accounts')
 
@@ -68,11 +68,12 @@ def jwt_payload(tok):
 
 
 def collect_accounts():
-    """All email:password:token lines across gen/output/accounts*.txt."""
+    """Current result ledgers, with a legacy-flat fallback under the same root."""
     seen, out = set(), []
     root = os.environ.get('ZAI_OUTPUT_DIR') or os.path.join(HERE, 'output')
-    paths = glob.glob(os.path.join(root, 'accounts*.txt')) + glob.glob(os.path.join(root, 'results', 'accounts*.txt'))
-    for path in sorted(set(paths)):
+    paths = sorted(glob.glob(os.path.join(root, 'results', 'accounts*.txt')))
+    paths += sorted(glob.glob(os.path.join(root, 'accounts*.txt')))
+    for path in paths:
         with open(path, 'r', encoding='utf-8', errors='ignore') as f:
             for line in f:
                 line = line.strip()
@@ -81,7 +82,7 @@ def collect_accounts():
                 parts = line.split(':')
                 if len(parts) < 3:
                     continue
-                email = parts[0]
+                email = parts[0].strip().lower()
                 token = parts[-1]
                 if not token.startswith('eyJ') or email in seen:
                     continue

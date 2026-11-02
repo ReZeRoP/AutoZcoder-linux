@@ -109,11 +109,11 @@ and must remain Python 3.14.
 
 Build locations:
 
-- `build/fedora/autozcoder-1.3.0-fedora/`: staged runtime, original dependency
+- `build/fedora/autozcoder-2.0.0-fedora/`: staged runtime, original dependency
   license files, collected `BUNDLED-LICENSES.txt`, `SOURCE-FILES.txt` and
   `RUNTIME-MANIFEST.json` (SHA-256/size or symlink target per staged entry).
 - `build/fedora/rpmbuild/`: rpmbuild sources, buildroot and binary RPM output.
-- `build/fedora/release/`: `autozcoder-1.3.0-1.fc44.x86_64.rpm`, a copy of the
+- `build/fedora/release/`: `autozcoder-2.0.0-1.fc44.x86_64.rpm`, a copy of the
   runtime manifest and `SHA256SUMS`, suitable for manual release publication.
 
 Tar input ordering, UID/GID, timestamps and gzip headers are normalized using

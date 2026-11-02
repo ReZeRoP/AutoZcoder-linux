@@ -137,7 +137,7 @@ async def setup_client(cfg, tmp_path, outcomes, *, strategy='round_robin'):
     relay = RelayManager(tmp_path)
     for label in ('a', 'b', 'c'):
         relay.add_relay(label, 'https://' + label + '.invalid', 'custom')
-    relay.update_options(strategy=strategy)
+    relay.update_options(enabled=True, strategy=strategy)
     pending = list(outcomes)
     calls = []
     async def transport(request):

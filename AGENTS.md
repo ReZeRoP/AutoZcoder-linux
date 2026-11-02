@@ -15,11 +15,18 @@ Independent Fedora 44 x86_64 desktop fork of AutoZcoder. Application version and
 - `zcode_gateway/service.py`, `stream_delivery.py`: request ownership, verified streaming, errors, ledger recording.
 - `zcode_gateway/upstream.py`, `relay_manager.py`, `relay_deploy.py`, `relay_jobs.py`: transports, provenance classification, relay settings/probes and deployment ownership.
 - `zcode_gateway/dashboard/`: HTML/CSS/JavaScript UI.
+- `dashboard/index.html` is the fork's Studio at `/dash`; `dashboard/v2.html`
+  and modular assets serve the upstream V2 Workspace at `/dash/v2`.
+- `auto_generate.py`, generator session/claim controllers and `peer.py`:
+  v2 automation ownership, recovery and proxy-corrected admin peer checks.
 - `tests/`: Python tests and Node `.cjs` tests; `pytest.ini` defines discovery/async behavior.
 - `packaging/fedora/`: locks, staging, RPM build and packaging tests.
 - `generator/`, `mail-worker/`, `tools/`: retained optional upstream tools, not authorized live test inputs.
 
 Relevant contracts: `docs/LINUX-SERVICE.md`, `docs/VERIFIED-DELIVERY.md`, `docs/PROXY-RELAY-RELIABILITY.md`, `docs/LINUX-TESTING.md`. Some docs contain historical installed-release assertions; recheck actual state rather than treating them as current.
+V2 integration choices are in `docs/V2-MERGE.md`; the retained upstream release
+workflow under `docs/reference/` is a test/reference fixture, not an active
+GitHub workflow. The active release gate remains Fedora/Linux-specific.
 
 ## Production and privacy boundaries
 - Installed user gateway is separate from the checkout: `/usr/share/autozcoder` source, `/usr/lib64/autozcoder` private runtime, user `autozcoder.service` on port 8789. The unrelated system `zcode-gateway.service` on 8788 must remain untouched.

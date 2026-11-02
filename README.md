@@ -1,4 +1,4 @@
-# AutoZcoder Linux 1.3.0
+# AutoZcoder Linux 2.0.0
 
 An **unofficial, independent Linux desktop fork** of
 [B3hnamR/AutoZcoder](https://github.com/B3hnamR/AutoZcoder), a local gateway for
@@ -7,8 +7,33 @@ This fork is not affiliated with ZCode, z.ai, or the Fedora Project.
 
 The Linux release targets **Fedora 44 x86_64** and provides a GTK3/WebKit4.1
 desktop window, an isolated local gateway, and XDG-based configuration/state.
-Upstream's original Windows-oriented documentation is preserved unchanged at
+Upstream v2's Windows/VPS documentation is preserved at
 [docs/UPSTREAM-README.md](docs/UPSTREAM-README.md).
+
+## Version 2 integration
+
+This source release merges upstream **v2.0.0**, commit
+`38df8cd85f70433378aeb2816a53e271fb48a45b`, while preserving the Linux fork's
+unpublished 1.3.0 service, Studio and verified-delivery improvements.
+
+- Your existing **Studio remains `/dash`**. The new modular **V2 Workspace**
+  is available at `/dash/v2` (`/dash/next` is an alias); both use the same backend.
+- V2 includes automatic-generation session controls, qualified-success goals,
+  attempt/concurrency limits, pause/resume/stop and background-display support.
+  Registration qualification checks the active Start Plan and usable quota.
+- Batch Start Plan recovery, claim progress/cancellation, JWT account imports,
+  per-model quota/reset displays, analytics comparisons/CSV exports, and the
+  searchable guide are integrated.
+- Mail setup/routing confirmation, interpreter/browser preflight, proxy tooling,
+  per-relay secrets/target allowlists, and upstream overload compatibility are
+  integrated with this fork's owned, bounded lifecycle and strict relay checks.
+- Linux user-service controls, opt-in autostart, XDG state, Studio interactions,
+  and verified streaming remain intact. In-app Windows executable updates do
+  not replace Fedora's package-managed update path.
+
+See [docs/V2-MERGE.md](docs/V2-MERGE.md) for compatibility choices and limitations.
+This is **a source integration, not an installed upgrade or a published RPM**.
+Updating GitHub does not change an existing installation or restart its gateway.
 
 ## Install and launch
 
@@ -20,7 +45,7 @@ After downloading an RPM and its `SHA256SUMS` from a trusted release:
 
 ```bash
 sha256sum --ignore-missing -c SHA256SUMS
-sudo dnf install ./autozcoder-1.3.0-5.fc44.x86_64.rpm
+sudo dnf install ./autozcoder-2.0.0-1.fc44.x86_64.rpm
 autozcoder
 ```
 
@@ -30,7 +55,8 @@ and Node.js/npm as package dependencies. No Python packages or browsers are
 downloaded at RPM installation or normal startup.
 
 The desktop's default API is `http://127.0.0.1:8789/v1` and its dashboard is
-`http://127.0.0.1:8789/dash`. Use the client key from your own Server settings;
+`http://127.0.0.1:8789/dash`. The V2 Workspace is
+`http://127.0.0.1:8789/dash/v2`. Use the client key from your own Server settings;
 no shared API keys or accounts are distributed. The desktop connects to your
 `autozcoder.service` user unit: opening it deliberately starts the unit when
 needed, but closing the window leaves API clients connected. The unrelated
@@ -116,11 +142,19 @@ managed Linux mode. Uninstalling the RPM does not remove your per-user data.
   Playwright **1.64.0**, full Chromium revision **1248**, FFmpeg revision **1013**,
   and Wrangler **4.151.0**. The separate Chromium headless-shell is not bundled;
   the configured runtime uses the full browser for visible and headless modes.
-- The newer upstream **CAPTCHA token minter is not ported or built for Linux**.
-  Its TypeScript sources and original license are retained for provenance, but
+- Upstream's **CAPTCHA token minter now has Linux discovery/build support in
+  source**, but this Fedora bundle still does **not build or ship that sidecar**.
+  Its TypeScript sources and original license are retained, but
   no Windows `.exe`, Bun runtime, or Linux minter binary is shipped. Features
   that require that sidecar are unavailable out of the box. Bundling optional
   dependencies is not a claim of full upstream automation parity.
+- Linux invisible background generation uses **Xvfb**; the v2 RPM spec requires
+  `xorg-x11-server-Xvfb`. Source users must provide it themselves. Browser/UI
+  fixture tests are not evidence of successful live registration.
+- New relay configuration defaults to **disabled** until explicitly enabled.
+  Saved routing choices are not migrated or overwritten. Cloudflare, Vercel
+  Edge and Deno streaming templates are retained. **Netlify deployment remains
+  blocked** because its retained upstream template buffers the response.
 - No live account generation, CAPTCHA/token minting, rewards/invite claims,
   third-party proxy scans, or cloud deployment is part of this release's build
   verification. These workflows require appropriate service permission and

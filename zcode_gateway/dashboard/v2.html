@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>AutoZcoder V2 Workspace</title>
+<link rel="stylesheet" href="/dash/assets/css/tokens.css">
+<link rel="stylesheet" href="/dash/assets/css/base.css">
+<link rel="stylesheet" href="/dash/assets/css/layout.css">
+<link rel="stylesheet" href="/dash/assets/css/components.css">
+<script>
+  try {
+    var t = localStorage.getItem("gw-theme");
+    if (t !== "light" && t !== "dark")
+      t = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", t);
+  } catch (e) {}
+  window.__GW_ADMIN_KEY__ = sessionStorage.getItem("gw-admin-key") || "";
+</script>
+</head>
+<body>
+<!-- AUTOZCODER_BOOTSTRAP -->
+<div class="app" id="app" hidden>
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <span class="brand__mark" aria-hidden="true">Z</span>
+      <span class="brand__text">
+        <span class="brand__name">AutoZcoder V2</span>
+        <a class="brand__sub" href="/dash">Return to Studio</a>
+      </span>
+    </div>
+    <nav class="nav" id="nav" aria-label="Sections"></nav>
+    <div class="sidebar__foot">
+      <span id="foot-version">—</span><span class="spacer"></span>
+      <button class="btn btn--quiet btn--sm btn--icon" id="theme-toggle"
+              type="button" title="Toggle theme" aria-label="Toggle theme"></button>
+    </div>
+  </aside>
+  <div class="main">
+    <header class="topbar">
+      <button class="btn btn--quiet btn--sm btn--icon nav-toggle" id="nav-toggle"
+              type="button" aria-label="Toggle navigation" aria-expanded="false"></button>
+      <h1 class="topbar__title" id="view-title">Server</h1><span class="topbar__spacer"></span>
+      <span class="chip" id="chip-pool" hidden></span>
+      <span class="chip" id="chip-zcode" hidden>
+        <span class="dot" id="dot-zcode"></span><span id="chip-zcode-text"></span>
+      </span>
+      <span class="chip" id="chip-gateway" title="Gateway reachability">
+        <span class="dot" id="dot-gateway"></span><span id="chip-gateway-text">gateway</span>
+      </span>
+      <button class="btn btn--ghost btn--sm btn--icon" id="btn-notify"
+              type="button" title="Notifications" aria-label="Notifications" hidden>
+        <span class="btn__dot" id="notify-dot" hidden></span>
+      </button>
+      <button class="btn btn--ghost btn--sm btn--icon" id="btn-update"
+              type="button" title="Update available" aria-label="Update available" hidden>
+        <span class="btn__dot btn__dot--accent"></span>
+      </button>
+      <button class="btn btn--ghost btn--sm btn--icon" id="btn-refresh"
+              type="button" title="Refresh" aria-label="Refresh"></button>
+    </header>
+    <main class="view" id="view" tabindex="-1"><div class="view__inner" id="view-inner"></div></main>
+  </div>
+</div>
+<div class="overlay" id="login-overlay" hidden>
+  <form class="login" id="login-form" autocomplete="off">
+    <div class="login__head">
+      <div class="login__mark" aria-hidden="true">Z</div>
+      <div class="login__title">AutoZcoder V2</div>
+      <p class="login__sub">Enter the admin key to manage this gateway.</p>
+    </div>
+    <div class="card"><div class="card__body stack">
+      <div class="field">
+        <label class="field__label" for="login-key">Admin key</label>
+        <input class="input input--mono" id="login-key" type="password"
+               autocomplete="off" spellcheck="false" required>
+        <p class="field__error" id="login-error" hidden></p>
+      </div>
+      <button class="btn btn--primary btn--block" id="login-submit" type="submit">Continue</button>
+    </div></div>
+    <p class="field__help" style="text-align:center;margin-top:12px">
+      Your own key is shown in Studio's Connection section.
+    </p>
+  </form>
+</div>
+<script type="module" src="/dash/assets/js/boot.js"></script>
+</body>
+</html>

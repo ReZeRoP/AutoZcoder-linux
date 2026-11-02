@@ -78,10 +78,10 @@ def build_headers(access_token, fp, task_id=None, *, device_mid=None, include_de
 
 def build_upstream_body(payload, variant="anthropic", default_max_tokens=128000,
                         anthropic_cache_control=True, model_caps=None,
-                        default_effort='high'):
+                        default_effort='high', harness=True):
     from .zcode_protocol import build_body
     return build_body(payload, default_max_tokens, model_caps=model_caps,
-                      default_effort=default_effort)
+                      default_effort=default_effort, harness=harness)
 
 
 # --------------------------------------------------------------------------- #
@@ -148,6 +148,8 @@ def _error_code(body: str | bytes | None) -> str:
     try:
         parsed = json.loads(text)
     except Exception:
+        return ""
+    if not isinstance(parsed, dict):
         return ""
     err = parsed.get("error", parsed)
     if isinstance(err, dict):
@@ -372,15 +374,27 @@ class UpstreamClient:
                 control.check()
                 control.phase = 'opening'
             relay_url = None
+            relay_secret = ""
             if self.relay_manager:
                 req_model = str(body.get("model") or "")
                 required = getattr(self.relay_manager, 'relay_required_for_model', None)
-                if required is not None:
+                picker = getattr(self.relay_manager, 'pick_relay_for_model', None)
+                if picker is not None:
+                    entry = (picker(req_model, exclude_urls=set(tried_relay_urls))
+                             if required is not None else picker(req_model))
+                    if entry:
+                        relay_url = entry["url"].strip()
+                        relay_secret = entry.get("secret") or ""
+                elif required is not None:
                     relay_url = self.relay_manager.get_relay_for_model(
                         req_model, exclude_urls=set(tried_relay_urls))
                 else:
                     # Third-party injected managers retain their older interface.
                     relay_url = self.relay_manager.get_relay_for_model(req_model)
+                if relay_url and hasattr(self.relay_manager, "get_settings"):
+                    st = self.relay_manager.get_settings()
+                    relay_secret = next((r.get("secret") or "" for r in st.get("relays", [])
+                                         if r.get("url") == relay_url), "")
                 if relay_url in tried_relay_urls:
                     break
                 if not relay_url and (tried_relay_urls or (required is not None and required(req_model))):
@@ -401,6 +415,9 @@ class UpstreamClient:
                     fwd_headers = dict(headers)
                     fwd_headers["x-relay-target"] = target
                     fwd_headers["x-relay-path"] = relay_path
+                    if relay_secret:
+                        # hardened relays require this; legacy relays ignore it
+                        fwd_headers["x-relay-secret"] = relay_secret
                     req = self._client.build_request(
                         "POST", relay_url, headers=fwd_headers, json=body,
                     )
@@ -418,7 +435,7 @@ class UpstreamClient:
                 if relay_url and self.relay_manager:
                     self.relay_manager.mark_relay_failed(relay_url)
                     tried_relay_urls.append(relay_url)
-                    last_exc = TransportError(str(exc))
+                    last_exc = RelayTransportError(str(exc), relay_url=relay_url)
                     continue
                 raise TransportError(str(exc)) from exc
 
@@ -467,10 +484,26 @@ class UpstreamClient:
                     return UpstreamResponse(status_code=429,
                         headers=dict(synthetic.headers), _resp=synthetic, relay_url=relay_url)
                 if relay_url and resp.status_code >= 500 and self.relay_manager:
-                    # the relay itself is unhappy — cool it and try the next one
+                    # A forwarded provider overload belongs to the model retry
+                    # policy, not relay cooldown. Explicit relay rejection wins.
+                    inspect_error = (not resp.headers.get("x-relay-reject")
+                                     and (resp.status_code == 529
+                                          or resp.headers.get("x-relay-hop") == "zcode-relay"
+                                          or "json" in resp.headers.get("content-type", "").lower()))
+                    raw = await _bounded_relay_error(resp) if inspect_error else b""
+                    from .model_retry import is_model_overload
+                    forwarded = (not resp.headers.get("x-relay-reject")
+                                 and (resp.headers.get("x-relay-hop") == "zcode-relay"
+                                      or is_model_overload(resp.status_code, _error_code(raw))))
+                    if forwarded:
+                        self.relay_manager.mark_relay_ok(relay_url)
+                        synthetic = _decoded_response(resp.status_code, raw, resp.headers)
+                        return UpstreamResponse(status_code=resp.status_code,
+                            headers=dict(synthetic.headers), _resp=synthetic, relay_url=relay_url)
                     self.relay_manager.mark_relay_failed(relay_url)
                     tried_relay_urls.append(relay_url)
-                    last_exc = TransportError(f"relay {relay_url} returned {resp.status_code}")
+                    last_exc = RelayTransportError(
+                        f"relay returned {resp.status_code}", relay_url=relay_url)
                     continue
 
                 if relay_url and resp.status_code == 405 and self.relay_manager:
@@ -550,9 +583,16 @@ class RelayErrorReadFailure(ValueError):
 
 async def _bounded_relay_error(response, limit=65536):
     body = bytearray()
+    # httpx's byte iterator closes on EOF. Reading an error must not move a
+    # cancellation-resistant close outside send()'s owned cleanup guard.
+    class OwnedErrorReader(httpx.Response):
+        async def aclose(self):
+            pass  # The original response remains owned by send().
+    reader = (response if not isinstance(response, httpx.Response) or response.is_stream_consumed else
+              OwnedErrorReader(response.status_code, headers=response.headers, stream=response.stream))
     try:
         async with asyncio.timeout(5):
-            async for chunk in response.aiter_bytes():
+            async for chunk in reader.aiter_bytes():
                 if len(body) + len(chunk) > limit:
                     raise RelayErrorReadFailure('body_limit', len(body) + len(chunk))
                 body.extend(chunk)
@@ -925,6 +965,17 @@ class TransportError(Exception):
     """Network-level failure — safe to retry on another account."""
 
 
+class RelayTransportError(TransportError):
+    """Transport failure that happened THROUGH a relay (connection error or
+    relay 5xx, after all relays were rotated). The account did nothing wrong
+    — the account layer must NOT cool it; the relays are already cooled and
+    the caller surfaces a 502 with relay attribution instead."""
+
+    def __init__(self, message: str, relay_url: str = "") -> None:
+        super().__init__(message)
+        self.relay_url = relay_url
+
+
 class UpstreamBlockThroughRelay(TransportError):
     """405/3012 'unusual activity' arrived THROUGH a relay: the relay's exit
     IP is flagged, not the account. The client layer must rotate the RELAY
@@ -939,7 +990,10 @@ class UpstreamBlockThroughRelay(TransportError):
 def iter_sse_events(chunk_text, strict=False):
     events = []
     for frame in __import__('re').split(r'\r\n\r\n|\n\n|\r\r', chunk_text):
-        lines = [line[5:].lstrip(' ') for line in frame.splitlines() if line.startswith('data:')]
+        # SSE spec: strip the field name and EXACTLY one optional leading
+        # space — lstrip(' ') ate multi-space-prefixed payloads
+        lines = [line[5:][1:] if line[5:].startswith(' ') else line[5:]
+                 for line in frame.splitlines() if line.startswith('data:')]
         if not lines: continue
         data = '\n'.join(lines)
         if data == '[DONE]':

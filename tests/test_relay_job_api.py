@@ -24,7 +24,7 @@ def app_for(tmp_path):
 def test_start_returns_before_provider_completion_and_duplicate_is_observation(tmp_path, monkeypatch):
     entered, finish = threading.Event(), threading.Event()
     calls = []
-    def deploy(vercel_token, project_name='', control=None):
+    def deploy(vercel_token, project_name='', control=None, secret=''):
         calls.append(project_name)
         entered.set()
         assert finish.wait(3)

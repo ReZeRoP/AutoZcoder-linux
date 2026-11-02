@@ -10,10 +10,45 @@ unnoticed.
 from __future__ import annotations
 
 import socket
+import os
+from pathlib import Path
 
 import pytest
 
 _REAL_GETADDRINFO = socket.getaddrinfo
+
+
+@pytest.fixture(autouse=True)
+def _existing_fixture_chromium(monkeypatch):
+    """Opt-in full Chromium for offline tests without a browser download.
+
+    The Fedora bundle contains full Chromium, not a separate headless shell.
+    Never change the normal Playwright discovery unless explicitly requested.
+    """
+    executable = os.environ.get("AUTOZCODER_TEST_CHROMIUM", "")
+    if not executable:
+        return
+    path = Path(executable)
+    if not path.is_absolute() or not path.is_file():
+        pytest.fail("AUTOZCODER_TEST_CHROMIUM must name an existing absolute browser path")
+    try:
+        from playwright.sync_api import BrowserType
+    except ImportError:
+        return
+    original = BrowserType.launch
+    def launch(self, **kwargs):
+        if self.name == "chromium":
+            kwargs.setdefault("executable_path", str(path))
+        return original(self, **kwargs)
+    monkeypatch.setattr(BrowserType, "launch", launch)
+
+
+@pytest.fixture(autouse=True)
+def _trusted_testserver(monkeypatch):
+    """TestClient's synthetic host is explicitly trusted only in the suite."""
+    from zcode_gateway.config import ServerConfig
+    original = ServerConfig.trusted_hosts
+    monkeypatch.setattr(ServerConfig, "trusted_hosts", lambda self: original(self) | {"testserver"})
 
 
 @pytest.fixture(autouse=True)

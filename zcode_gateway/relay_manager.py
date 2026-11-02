@@ -8,6 +8,7 @@ from __future__ import annotations
 import copy
 import json
 import math
+import os
 import random
 import threading
 import time
@@ -93,8 +94,29 @@ class RelayManager:
             raise TimeoutError("; ".join(errors))
         return True
 
+    def _merge_health(self, results, *, cooldowns=False) -> None:
+        with self._lock:
+            st = self.get_settings()
+            changed = False
+            for original, res, tested_at in results:
+                target = next((r for r in st['relays'] if r.get('id') == original.get('id')
+                               and r.get('url') == original.get('url')
+                               and r.get('secret') == original.get('secret')), None)
+                if target is None or (target.get('last_tested_at') or 0) > tested_at:
+                    continue
+                target.update(last_status=res.get('status'), last_error=res.get('error'),
+                              last_latency_ms=res.get('elapsed_ms'), last_tested_at=tested_at)
+                if cooldowns:
+                    if res.get('ok'):
+                        self.mark_relay_ok(target['url'])
+                    else:
+                        self.mark_relay_failed(target['url'])
+                changed = True
+            if changed:
+                self.save_settings(st)
+
     def _default_settings(self) -> dict[str, Any]:
-        return {"enabled": True, "active_url": "", "active_id": "",
+        return {"enabled": False, "active_url": "", "active_id": "",
                 "models": ["GLM-5.3"], "strategy": "single", "relays": []}
 
     @staticmethod
@@ -235,6 +257,10 @@ class RelayManager:
                         and (st["relays"] or st["active_url"].strip()))
 
     def get_relay_for_model(self, model: str, exclude_urls=None) -> str | None:
+        entry = self.pick_relay_for_model(model, exclude_urls=exclude_urls)
+        return entry["url"].strip() if entry else None
+
+    def pick_relay_for_model(self, model: str, exclude_urls=None) -> dict | None:
         with self._lock:
             st = self.get_settings()
             if not model or not st["enabled"] or not self._model_matches(model, st["models"]):
@@ -242,16 +268,37 @@ class RelayManager:
             excluded = set(exclude_urls or ())
             if not st["relays"]:
                 url = st["active_url"].strip()
-                return url if url and url not in excluded else None
+                return {"url": url, "secret": ""} if url and url not in excluded else None
             pick = self._pick_relay(st, excluded)
-            return pick["url"].strip() if pick else None
+            return copy.deepcopy(pick) if pick else None
 
-    def add_relay(self, name: str, url: str, type_name: str = "custom", *, _control=None) -> dict[str, Any]:
+    @staticmethod
+    def _new_relay_secret() -> str:
+        import secrets
+        return "zr_" + secrets.token_hex(16)
+
+    @staticmethod
+    def _validate_relay_url(url: str) -> str:
+        parsed = urlsplit(url)
+        loopback = (parsed.hostname or "").lower() in ("127.0.0.1", "localhost", "::1")
+        if (not parsed.hostname or parsed.username or parsed.password
+                or parsed.fragment or any(ord(c) < 33 for c in url)
+                or not (parsed.scheme == "https" or (parsed.scheme == "http" and loopback))):
+            raise ValueError("Relay URL must be credential-free https (http is allowed only on loopback)")
+        parsed.port
+        return url
+
+    def add_relay(self, name: str, url: str, type_name: str = "custom", secret: str | None = None, *, _control=None) -> dict[str, Any]:
         if not isinstance(type_name, str) or type_name not in RELAY_TYPES:
             raise ValueError(f"Relay type must be one of {', '.join(RELAY_TYPES)}")
         if not isinstance(name, str) or not isinstance(url, str):
             raise ValueError("Relay name and URL must be strings")
         url = url.strip()
+        self._validate_relay_url(url)
+        if secret is None:
+            secret = self._new_relay_secret()
+        if not isinstance(secret, str) or len(secret) > 8192 or any(c in secret for c in "\r\n\0"):
+            raise ValueError("Relay secret must be a bounded string without control characters")
         try:
             parsed = urlsplit(url)
             if parsed.scheme not in ("http", "https") or not parsed.hostname or any(c.isspace() for c in url):
@@ -263,7 +310,7 @@ class RelayManager:
                 _control.check()
             st = self.get_settings()
             entry = {"id": f"relay-{uuid.uuid4().hex[:12]}", "name": name or f"{type_name}-relay",
-                     "type": type_name, "url": url, "created_at": time.time(),
+                     "type": type_name, "url": url, "secret": secret, "created_at": time.time(),
                      "last_status": None, "last_error": None, "last_latency_ms": None,
                      "last_tested_at": None}
             st["relays"].append(entry)
@@ -370,9 +417,9 @@ class RelayManager:
             return True
 
     @staticmethod
-    def _ping(url: str, timeout: float) -> dict:
+    def _ping(url: str, timeout: float, secret: str = "") -> dict:
         try:
-            return ping_relay(url, timeout=timeout)
+            return ping_relay(url, timeout=timeout, **({"secret": secret} if secret else {}))
         except Exception:
             # Never persist arbitrary exception text (it can contain URL secrets).
             return {"ok": False, "status": None, "error": "Relay probe failed",
@@ -383,7 +430,8 @@ class RelayManager:
         if probe is None:
             return {"ok": False, "error": "Relay not found or manager is stopping"}
         key, sequence = probe
-        result = self._ping(key[1], 12.0)
+        entry = next((r for r in self.get_settings()["relays"] if r["id"] == key[0] and r["url"] == key[1]), {})
+        result = self._ping(key[1], 12.0, entry.get("secret") or "")
         self._merge_probe(key, sequence, result)
         return result
 
@@ -396,7 +444,7 @@ class RelayManager:
             if probe is None:
                 continue
             key, sequence = probe
-            result = self._ping(key[1], 3.0)
+            result = self._ping(key[1], 3.0, relay.get("secret") or "")
             if self._health_stop.is_set():
                 break
             if self._merge_probe(key, sequence, result):
@@ -407,7 +455,12 @@ class RelayManager:
     def _deploy(provider: str, payload: dict, control):
         deployer = {"cloudflare": deploy_cloudflare, "vercel": deploy_vercel,
                     "deno": deploy_deno, "netlify": deploy_netlify}[provider]
-        return deployer(**payload, control=control)
+        secret = payload.get("secret") or RelayManager._new_relay_secret()
+        payload["secret"] = secret
+        result = deployer(**payload, control=control)
+        if isinstance(result, dict):
+            result["secret"] = secret
+        return result
 
     def _register_deployment(self, registration: dict, control) -> dict:
         return self.add_relay(**registration, _control=control)
