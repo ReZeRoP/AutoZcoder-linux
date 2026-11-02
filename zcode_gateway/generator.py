@@ -702,6 +702,8 @@ class GenWorker:
             return 0
 
     def start(self):
+        if self.stopped:
+            return
         env = os.environ.copy()
         env.update(self.env)
         env["PYTHONUNBUFFERED"] = "1"
@@ -718,7 +720,8 @@ class GenWorker:
                 self.on_exit(self)
             return
         self.state = "running"
-        threading.Thread(target=self._pump, daemon=True).start()
+        self._thread = threading.Thread(target=self._pump, daemon=True)
+        self._thread.start()
 
     def _pump(self):
         import re
@@ -845,33 +848,54 @@ class ProxyChecker:
         self.auto_interval_min = 45
         self._auto_thread: threading.Thread | None = None
         self._auto_stop = threading.Event()
+        self._auto_wake = threading.Event()
+        self._auto_generation = 0
         self.last_verified_at: float | None = None
 
-    def set_auto_verify(self, enabled: bool, interval_min: int | None = None) -> dict:
-        """Background re-verify loop: re-probes the usable pool so the claim
-        picker never faces an all-stale candidate set."""
+    def auto_status(self) -> dict:
         with self._lock:
-            self.auto_verify = bool(enabled)
-            if interval_min:
-                self.auto_interval_min = max(5, int(interval_min))
-        if enabled and not (self._auto_thread and self._auto_thread.is_alive()):
-            self._auto_stop.clear()
-            self._auto_thread = threading.Thread(target=self._auto_loop, daemon=True)
-            self._auto_thread.start()
-        if not enabled:
-            self._auto_stop.set()
-        return {"auto_verify": self.auto_verify,
-                "interval_min": self.auto_interval_min}
+            return {"auto_verify": self.auto_verify,
+                    "interval_min": self.auto_interval_min,
+                    "last_verified_at": self.last_verified_at}
+
+    def set_auto_verify(self, enabled: bool, interval_min: int | None = None) -> dict:
+        """Wake one owned scheduler; enabling waits a full interval, never scans now."""
+        if type(enabled) is not bool:
+            raise ValueError("enabled must be a boolean")
+        if interval_min is not None and (type(interval_min) is not int or not 5 <= interval_min <= 10080):
+            raise ValueError("interval_min must be an integer between 5 and 10080")
+        with self._lock:
+            self.auto_verify = enabled and not getattr(self, "_shutdown", False)
+            if interval_min is not None:
+                self.auto_interval_min = interval_min
+            self._auto_generation += 1
+            if self.auto_verify:
+                self._auto_stop.clear()
+            else:
+                self._auto_stop.set()
+            self._auto_wake.set()
+            if self.auto_verify and self._auto_thread is None:
+                self._auto_thread = threading.Thread(target=self._auto_loop,
+                                                     name="proxy-auto-verify", daemon=True)
+                self._auto_thread.start()
+            return {"auto_verify": self.auto_verify, "interval_min": self.auto_interval_min,
+                    "last_verified_at": self.last_verified_at}
 
     def _auto_loop(self) -> None:
-        while not self._auto_stop.wait(self.auto_interval_min * 60):
+        while True:
+            with self._lock:
+                if not self.auto_verify or self._auto_stop.is_set() or getattr(self, "_shutdown", False):
+                    self._auto_thread = None
+                    return
+                self._auto_wake.clear()
+                interval = self.auto_interval_min * 60
+                generation = self._auto_generation
+            if self._auto_wake.wait(interval):
+                continue
             try:
-                if not self.auto_verify:
-                    continue
-                # recheck = re-probe the existing usable pool (fast, no fetch)
-                res = self.run("recheck")
-                if "error" not in res:
-                    self.last_verified_at = time.time()
+                # Admission checks the generation under the same run lock, so a
+                # disabled/reconfigured timer cannot start work after waking.
+                self.run("recheck", _auto_generation=generation)
             except Exception:
                 log.exception("proxy auto-verify failed")
 
@@ -883,9 +907,14 @@ class ProxyChecker:
             preset: str | None = None, prefilter: bool | None = None,
             retry_failed: bool | None = None, dead_cache_hours: float | None = None,
             probe_timeout: float | None = None,
-            probe_concurrency: int | None = None) -> dict:
+            probe_concurrency: int | None = None, _auto_generation: int | None = None) -> dict:
         action = action if action in self.ACTIONS else "verify"
         with self._lock:
+            if _auto_generation is not None and (not self.auto_verify or self._auto_stop.is_set()
+                                                  or _auto_generation != self._auto_generation):
+                return {"error": "auto verification was disabled or rescheduled"}
+            if getattr(self, "_shutdown", False):
+                return {"error": "gateway is stopping"}
             if self.alive():
                 return {"error": "checker already running", "action": self.action}
             self.action = action
@@ -1361,6 +1390,8 @@ class ClaimJob:
         return self.state == "starting" and not self.stopped
 
     def start(self):
+        if self.stopped:
+            return
         env = os.environ.copy()
         env.update({"PYTHONUNBUFFERED": "1",
                     "ZAI_OUTPUT_DIR": str(self.data_dir),
@@ -1469,6 +1500,9 @@ class GeneratorManager:
         self.claims: dict[str, ClaimJob] = {}
         self._claim_batch_lock = threading.Lock()
         self._stop_generation = 0
+        self._shutdown_stop = threading.Event()
+        self._background_threads: set[threading.Thread] = set()
+        self._background_lock = threading.RLock()
         self.checker = ProxyChecker(self.gen_dir, self.python_exe,
                                     data_dir=self.data_dir)
         self._seq = 0
@@ -1518,6 +1552,65 @@ class GeneratorManager:
         self.load_options()
         # tidy a legacy-flat data dir into the sorted layout (once, best-effort)
         self._cleanup_layout()
+
+    def spawn_background(self, callback, *args, name="generator-background"):
+        """Register existing callbacks before launch; no new work after stop."""
+        with self._background_lock:
+            if self._shutdown_stop.is_set():
+                return None
+            def run():
+                try:
+                    if not self._shutdown_stop.is_set():
+                        callback(*args)
+                finally:
+                    with self._background_lock:
+                        self._background_threads.discard(threading.current_thread())
+            thread = threading.Thread(target=run, name=name, daemon=True)
+            self._background_threads.add(thread)
+            thread.start()
+            return thread
+
+    def request_shutdown(self):
+        """Nonblocking producer fence, usable in Uvicorn's signal callback."""
+        self._shutdown_stop.set()
+        self.checker._shutdown = True
+        self.checker._auto_stop.set()
+        self.checker._auto_wake.set()
+        self.checker.auto_verify = False
+        for worker in list(self.workers.values()) + list(self.claims.values()):
+            worker.stopped = True
+
+    def shutdown(self, *, deadline: float | None = None):
+        """Stop owned child groups concurrently, then join existing callbacks."""
+        deadline = deadline or (time.monotonic() + 10)
+        self.request_shutdown()
+        with self._claim_batch_lock:
+            self._stop_generation += 1
+        targets = [self.checker, *list(self.claims.values()), *list(self.workers.values())]
+        stops = []
+        errors = []
+        def stop(target):
+            try:
+                target.stop()
+            except Exception:
+                errors.append(True)
+        for target in targets:
+            thread = threading.Thread(target=stop, args=(target,), daemon=True)
+            thread.start()
+            stops.append(thread)
+        with self._background_lock:
+            threads = list(self._background_threads)
+        threads.extend(stops)
+        for target in targets:
+            for attr in ("_thread", "_auto_thread"):
+                thread = getattr(target, attr, None)
+                if thread is not None:
+                    threads.append(thread)
+        for thread in threads:
+            if thread is not threading.current_thread():
+                thread.join(max(0, deadline - time.monotonic()))
+        if errors or any(t.is_alive() for t in threads if t is not threading.current_thread()):
+            raise TimeoutError("generator workers are still stopping")
 
     # ---- email system -------------------------------------------------------
 
@@ -2570,6 +2663,8 @@ class GeneratorManager:
 
     def start_workers(self, count: int = 1) -> dict:
         with self._lock:
+            if self._shutdown_stop.is_set():
+                return {"error": "gateway is stopping"}
             # AI judge against the GATEWAY's own model needs a live account
             # pool to serve /v1/chat/completions. A fresh install has zero
             # accounts: warn instead of spawning workers whose every AI call
@@ -2732,6 +2827,8 @@ class GeneratorManager:
     def start_workers_checked(self, count: int = 1, emit=print) -> dict:
         """start_workers, but with a guaranteed Playwright setup first
         (streams one-time install progress to the caller via `emit`)."""
+        if self._shutdown_stop.is_set():
+            return {"error": "gateway is stopping"}
         if not self._ensure_playwright(emit):
             return {"error": "playwright setup failed — check the log"}
         return self.start_workers(count)
@@ -2817,6 +2914,8 @@ class GeneratorManager:
         return env
 
     def _worker_done(self, w: GenWorker):
+        if self._shutdown_stop.is_set():
+            return
         new = w.check_new_account()
         if new and self.on_account:
             try:
@@ -2872,6 +2971,8 @@ class GeneratorManager:
         the first job was not registered yet. The job is registered here, shows
         up in the claim list immediately, and its route is resolved in the
         background (see _resolve_claim_route)."""
+        if self._shutdown_stop.is_set():
+            return {"error": "gateway is stopping"}
         email = (email or "").strip().lower()
         if not email:
             return {"error": "account has no email"}
@@ -2892,8 +2993,8 @@ class GeneratorManager:
                          else "starting on the direct IP…")
         job.started = time.time()          # elapsed counts from the click, not from process start
         self.claims[name] = job
-        threading.Thread(target=self._resolve_claim_route, args=(job, allow_direct_fallback),
-                         daemon=True, name=f"{name}-route").start()
+        self.spawn_background(self._resolve_claim_route, job, allow_direct_fallback,
+                              name=f"{name}-route")
         return {"started": name, "proxy": "", "mode": mode}
 
     def _resolve_claim_route(self, job: "ClaimJob", allow_direct_fallback: bool) -> None:

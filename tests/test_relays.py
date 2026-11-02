@@ -77,24 +77,40 @@ def test_relay_manager_delete(tmp_path: Path):
 
 
 def test_test_relay_success(monkeypatch):
+    import io
     import requests
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
-    mock_resp.text = "ok"
+    from urllib.parse import parse_qs, urlsplit
+
+    class Raw(io.BytesIO):
+        def read1(self, size, decode_content=False):
+            return super().read1(size)
 
     captured_req = {}
-    def mock_get(url, headers=None, timeout=None, verify=None):
-        captured_req["url"] = url
-        captured_req["headers"] = headers
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.headers = {"content-type": "application/json"}
+
+    def mock_get(url, **kwargs):
+        captured_req.update(kwargs, url=url)
+        path = kwargs["headers"]["x-relay-path"]
+        nonce = parse_qs(urlsplit(path).query)["autozcoder_probe"][0]
+        mock_resp.raw = Raw(json.dumps({
+            "args": {"autozcoder_probe": nonce}, "url": "https://httpbin.org" + path,
+        }).encode())
         return mock_resp
 
     monkeypatch.setattr(requests, "get", mock_get)
     res = ping_relay("https://my-relay.workers.dev")
     assert res["ok"] is True
     assert res["status"] == 200
+    assert res["probe_kind"] == "forwarding" and res["probe_verified"] is True
+    assert res["model_capability"] == res["streaming_capability"] == "not_tested"
     assert "elapsed_ms" in res
+    assert captured_req["verify"] is True and captured_req["allow_redirects"] is False
+    assert captured_req["stream"] is True
     assert captured_req["headers"]["x-relay-target"] == "https://httpbin.org"
-    assert captured_req["headers"]["x-relay-path"] == "/get"
+    assert captured_req["headers"]["x-relay-path"].startswith("/get?autozcoder_probe=")
+    mock_resp.close.assert_called_once()
 
 
 def test_deploy_cloudflare_mock(monkeypatch):

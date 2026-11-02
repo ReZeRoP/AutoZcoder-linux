@@ -74,6 +74,9 @@ dist-backup*/
 *.exe
 *.dll
 
+# Local Codex handoff may contain machine-specific operational context.
+/CODEX_HANDOFF.md
+
 # Personal migration and verification reports are not project documentation.
 VERIFICATION*.md
 WINDOWS-MIGRATION*.md

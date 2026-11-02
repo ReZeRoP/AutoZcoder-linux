@@ -57,6 +57,16 @@ class UpstreamConfig(BaseModel):
     chat_path: str = "/zcode-plan/anthropic/v1/messages"
     timeout_connect: float = 15.0
     timeout_read: float = 600.0
+    # Verified delivery retries privately before exposing a complete SSE turn.
+    stream_delivery: str = Field(default='realtime', pattern=r'^(realtime|verified)$')
+    stream_buffer_max_bytes: int = Field(default=16 * 1024 * 1024, ge=4096, le=64 * 1024 * 1024)
+    stream_verify_timeout_seconds: float = Field(default=300, ge=1, le=1800, allow_inf_nan=False)
+    stream_progress_timeout_seconds: float = Field(default=600, ge=1, le=1800, allow_inf_nan=False)
+    stream_heartbeat_seconds: float = Field(default=10, ge=0.1, le=60, allow_inf_nan=False)
+    stream_max_sends: int = Field(default=12, ge=1, le=64)
+    stream_max_concurrent: int = Field(default=4, ge=1, le=32)
+    stream_cleanup_timeout_seconds: float = Field(default=5, ge=0.1, le=5, allow_inf_nan=False)
+    stream_send_timeout_seconds: float = Field(default=30, ge=0.1, le=30, allow_inf_nan=False)
     max_attempts: int = 3
     # Native ZCode retries overloads up to 11 attempts with 2s exponential
     # backoff, capped at 60s, and 50-100% jitter. Quota failover stays separate.
@@ -291,7 +301,14 @@ def load_config(path: str | os.PathLike | None = None) -> Config:
             target = getattr(cfg, section)
             current = getattr(target, field)
             try:
-                if isinstance(current, bool):
+                if section == 'upstream' and field.startswith('stream_'):
+                    # Defaults may be integer objects even for a float schema;
+                    # let the declared field parse decimal environment values.
+                    values = target.model_dump()
+                    values[field] = val
+                    parsed = UpstreamConfig.model_validate(values)
+                    setattr(target, field, getattr(parsed, field))
+                elif isinstance(current, bool):
                     setattr(target, field, val.lower() in ("1", "true", "yes"))
                 elif isinstance(current, int):
                     setattr(target, field, int(val))
@@ -300,6 +317,14 @@ def load_config(path: str | os.PathLike | None = None) -> Config:
                 else:
                     setattr(target, field, val)
             except ValueError:
+                if section == 'upstream' and field.startswith('stream_'):
+                    raise ValueError('invalid upstream stream policy environment override') from None
                 pass
 
+    # Environment assignments bypass Pydantic construction validation. Revalidate
+    # upstream limits so nonfinite/zero policy overrides cannot disable bounds.
+    try:
+        cfg.upstream = UpstreamConfig.model_validate(cfg.upstream.model_dump())
+    except ValueError:
+        raise ValueError('invalid upstream configuration after environment overrides') from None
     return cfg.resolved(base)

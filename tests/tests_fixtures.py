@@ -46,7 +46,9 @@ class FakeClient:
     def __init__(self, body=None, responses=None):
         self.pending = list(responses or [FakeResponse(body or sample_sse())])
         self.responses, self.calls = [], []
-    async def send(self, headers, body, stream):
+    async def send(self, headers, body, stream, control=None):
+        if control is not None:
+            control.before_send()
         self.calls.append((headers, body))
         response = self.pending.pop(0)
         self.responses.append(response)

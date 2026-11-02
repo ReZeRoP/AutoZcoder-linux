@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AutoZcoder — waiting</title>
+<style>
+:root{color-scheme:dark;--bg:#000000;--strip:#000000;--fg:#FAFAFA;--muted:#A3A3A3;--accent:#FAFAFA;--line:#262626}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:var(--bg);color:var(--fg);font:14px/1.65 Cantarell,system-ui,sans-serif;padding:48px 40px;display:grid;place-items:center}
+main{width:min(880px,100%)}
+.wordmark{display:flex;align-items:center;gap:12px;font-weight:700;letter-spacing:-.02em;font-size:20px}
+.mark{display:grid;place-items:center;width:34px;height:34px;border:1px solid #333333;border-radius:10px;background:var(--strip);color:var(--accent);font-size:16px}
+.brand-note{margin:5px 0 0 46px;color:var(--muted);font-size:13px}
+.connection{display:block;width:260px;max-width:100%;height:auto;margin:48px 0 26px;color:var(--accent)}
+.eyebrow{color:var(--accent);font-size:12px;letter-spacing:0;font-weight:700;margin:0 0 10px}
+h1{font-size:clamp(28px,4vw,42px);line-height:1.2;letter-spacing:-.035em;font-weight:600;margin:0 0 18px}
+.lead{max-width:580px;color:var(--muted);margin:0;font-size:14px}
+.facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:28px;margin:40px 0 0;padding:24px 0 0;border-top:1px solid var(--line);list-style:none}
+.facts h2{font-size:14px;font-weight:600;margin:0 0 6px}
+.facts p{color:var(--muted);font-size:13px;line-height:1.6;margin:0}
+.fallback{border-top:1px solid var(--line);margin:28px 0 0;padding-top:18px;color:var(--muted);font-size:12px;max-width:880px}
+code{font:12px ui-monospace,monospace;color:var(--accent);overflow-wrap:anywhere}
+@media(max-width:620px){body{padding:32px 24px}.connection{margin-top:32px}.facts{grid-template-columns:1fr;gap:18px;margin-top:28px}.brand-note{margin-left:0;margin-top:12px}}
+</style>
+</head>
+<body>
+<main role="status" aria-live="polite">
+  <header>
+    <div class="wordmark"><span class="mark" aria-hidden="true">A</span>AutoZcoder</div>
+    <p class="brand-note">Your local gateway workspace</p>
+  </header>
+  <svg class="connection" viewBox="0 0 260 96" fill="none" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+    <rect x="1" y="15" width="76" height="58" rx="12" fill="#000000" stroke="#333333"/>
+    <rect x="19" y="29" width="40" height="27" rx="4" stroke="currentColor" stroke-width="1.5"/>
+    <path d="M29 62h20M39 56v6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+    <path d="M89 44h72" stroke="#333333" stroke-width="1.5" stroke-dasharray="3 6" stroke-linecap="round"/>
+    <circle cx="125" cy="44" r="7" fill="#000000" stroke="currentColor" stroke-width="1.5"/>
+    <rect x="173" y="1" width="86" height="86" rx="18" fill="#000000" stroke="#333333"/>
+    <rect x="195" y="24" width="42" height="16" rx="4" stroke="currentColor" stroke-width="1.5"/>
+    <rect x="195" y="48" width="42" height="16" rx="4" stroke="currentColor" stroke-width="1.5"/>
+    <circle cx="204" cy="32" r="2" fill="currentColor"/>
+    <circle cx="204" cy="56" r="2" fill="currentColor"/>
+    <path d="M213 32h15M213 56h15" stroke="#A3A3A3" stroke-width="1.5" stroke-linecap="round"/>
+  </svg>
+  <p class="eyebrow">Local connection</p>
+  <h1>Waiting for the gateway</h1>
+  <p class="lead">Your workspace will open when the verified gateway is available. Check the service status or start the service in the bar above.</p>
+  <ul class="facts">
+    <li><h2>Independent service</h2><p>Closing this window leaves the gateway running. Stopping the service disconnects API clients.</p></li>
+    <li><h2>Verified connection</h2><p>No unrelated listener is adopted. Your dashboard edits are retained, and account actions are never replayed.</p></li>
+    <li><h2>Autostart is optional</h2><p>Login autostart lives in the Service menu. Disabling it only changes future user-manager startup.</p></li>
+  </ul>
+  <p class="fallback">User manager unavailable? Run <code>autozcoder serve</code> in a terminal, then attach with <code>autozcoder ui --config PATH</code>. Custom configurations are attach-only and never manage the default unit.</p>
+</main>
+</body>
+</html>

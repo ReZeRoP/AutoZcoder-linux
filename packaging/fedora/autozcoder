@@ -5,6 +5,6 @@ import sys
 
 os.environ["AUTOZCODER_PACKAGE_MANAGED"] = "1"
 sys.path[:0] = ["/usr/lib64/autozcoder/python", "/usr/share/autozcoder"]
-from zcode_gateway.linux_desktop import main
+from zcode_gateway.linux_cli import main
 
 sys.exit(main())

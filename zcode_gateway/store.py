@@ -38,14 +38,35 @@ class Store:
     def __init__(self, path: str) -> None:
         self.path = path
         Path(path).parent.mkdir(parents=True, exist_ok=True)
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._conn = sqlite3.connect(path, check_same_thread=False)
         self._conn.executescript(SCHEMA)
         self._conn.commit()
 
-    def close(self) -> None:
-        with self._lock:
+    def close(self, deadline: float | None = None) -> None:
+        """Close without an unbounded lock wait during service shutdown."""
+        if deadline is None:
+            acquired = self._lock.acquire()
+        else:
+            # SQLite interrupt is thread-safe and lets an outstanding read return.
+            self._conn.interrupt()
+            acquired = self._lock.acquire(timeout=max(0.0, deadline - time.monotonic()))
+        if not acquired:
+            raise TimeoutError("usage store shutdown deadline exceeded")
+        try:
             self._conn.close()
+        finally:
+            self._lock.release()
+
+    def close_before(self, deadline: float) -> None:
+        self._conn.interrupt()
+        if not self._lock.acquire(timeout=max(0.0, deadline - time.monotonic())):
+            raise TimeoutError("usage store shutdown deadline exceeded")
+        try:
+            # Honor overridden close hooks after obtaining the bounded lock.
+            self.close()
+        finally:
+            self._lock.release()
 
     _COLS = ("ts", "account_id", "client_key", "dialect", "model", "variant",
              "stream", "status", "duration_ms", "prompt_tokens",

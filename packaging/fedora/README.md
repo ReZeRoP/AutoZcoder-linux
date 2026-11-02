@@ -1,6 +1,6 @@
 # Fedora 44 build and packaging
 
-AutoZcoder Linux **1.2.2, release 1** is an independent desktop fork. The target
+AutoZcoder Linux **1.3.0, release 1** is an independent desktop fork. The target
 is **Fedora 44 / x86_64 / system Python 3.14**; other Fedora releases, Python ABIs
 and distributions are not claimed to work. Main application version detection
 parses `zcode_gateway/__init__.py` with `ast`, without importing the app. The RPM
@@ -13,7 +13,7 @@ bootstrap/build scripts never invoke sudo or change system packages:
 
 ```bash
 sudo dnf install rpm-build desktop-file-utils git tar gzip nodejs npm \
-  python3 python3-gobject python3-cairo gtk3 webkit2gtk4.1
+  python3 python3-gobject python3-cairo gtk3 webkit2gtk4.1 systemd-rpm-macros
 ```
 
 Also install [uv](https://docs.astral.sh/uv/). `UV=/path/to/uv` overrides its PATH
@@ -109,11 +109,11 @@ and must remain Python 3.14.
 
 Build locations:
 
-- `build/fedora/autozcoder-1.2.2-fedora/`: staged runtime, original dependency
+- `build/fedora/autozcoder-1.3.0-fedora/`: staged runtime, original dependency
   license files, collected `BUNDLED-LICENSES.txt`, `SOURCE-FILES.txt` and
   `RUNTIME-MANIFEST.json` (SHA-256/size or symlink target per staged entry).
 - `build/fedora/rpmbuild/`: rpmbuild sources, buildroot and binary RPM output.
-- `build/fedora/release/`: `autozcoder-1.2.2-1.fc44.x86_64.rpm`, a copy of the
+- `build/fedora/release/`: `autozcoder-1.3.0-1.fc44.x86_64.rpm`, a copy of the
   runtime manifest and `SHA256SUMS`, suitable for manual release publication.
 
 Tar input ordering, UID/GID, timestamps and gzip headers are normalized using
@@ -141,8 +141,34 @@ not evidence that every GUI or remote workflow works.
 
 Preview helpers (`preview.py` for source, `preview-complete.py` after staging)
 use isolated HOME/XDG folders below `build/`, detect the current version, and
-use port 8790 rather than the installed app's 8789. They open the real GTK app;
-do not click external operations in previews. They do not import real accounts.
+use port 8790 rather than the installed app's 8789. They serve the real foreground
+gateway for a browser preview; custom-profile GTK clients can attach separately.
+Do not click external operations in previews. They do not import real accounts.
+
+## User-service packaging policy
+
+The RPM owns `/usr/lib/systemd/user/autozcoder.service`, installed disabled.
+It deliberately contains no service-mutating `%post`, preset, user enumeration,
+start/stop/restart or lingering scriptlets. Only an explicit current-user CLI
+or desktop action may start/enable the unit. A first explicit control action
+may reload that user's manager; read-only diagnostics never do so.
+
+The unit has bounded crash restart, permanent configuration/ownership failure
+codes, cgroup process cleanup, private umask and a20-second stop deadline.
+GUI processes are independent clients and are not service children. Enabling
+login autostart does not start the service immediately; disabling it does not
+stop the currently running service. Logout lifetime follows systemd's user
+manager without any automated lingering change.
+
+Static checks:
+
+```bash
+systemd-analyze --user verify packaging/fedora/autozcoder.service
+```
+
+A Fedora container CI job verifies packaging/unit syntax and Python3.12/3.14
+CI covers the gateway. Neither static unit validation nor a container proves
+login/logout or graphical behavior; those need isolated integration checks.
 
 ## Licensing and distribution
 

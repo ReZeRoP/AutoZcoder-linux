@@ -101,3 +101,31 @@ def test_pool_card_endpoint_reads_the_real_fields(tmp_path):
     assert fail["reason"] == "timeout" and fail["fails"] == 1 and fail["checks"] == 6
     assert fail["checked_at"] == NOW - 10                       # real last_check, not a missing key
     assert body["countries"]["DE"] == 1 and body["countries"]["??"] == 6 and body["countries"]["US"] == 1
+
+
+def test_health_projection_redacts_userinfo_without_changing_private_pool(tmp_path):
+    private_url = 'http://synthetic-user:p@ssword@8.8.8.8:8080'
+    data = tmp_path / 'generator-data'
+    data.mkdir()
+    raw = {private_url: entry(private_url, last_ok=NOW, last_check=NOW,
+        last_result='ok', last_reason='request failed for ' + private_url,
+        public='http://another-user:secret@8.8.8.8:8080')}
+    path = data / 'pool.json'
+    path.write_text(json.dumps(raw))
+    (data / 'proxies_used.txt').write_text(private_url)
+    before = path.read_bytes()
+    cfg = Config(server={'admin_key': 'adm-test'},
+                 accounts={'dir': str(tmp_path / 'accounts')},
+                 store={'sqlite_path': str(tmp_path / 'gateway.db')},
+                 update={'enabled': False}, logging={'capture': False})
+    with TestClient(create_app(cfg)) as client:
+        response = client.get('/admin/dash/proxies/health', headers=ADMIN)
+        assert client.app.state.app_state.generator is None
+    assert response.status_code == 200
+    row = response.json()['proxies'][0]
+    assert row['url'] == 'http://8.8.8.8:8080'
+    assert row['status'] == 'used'
+    assert row['reason'] == 'check_failed'
+    assert 'synthetic-user' not in response.text
+    assert 'p@ssword' not in response.text and 'another-user' not in response.text
+    assert path.read_bytes() == before

@@ -1,4 +1,4 @@
-"""Launch the real GTK desktop with isolated preview data."""
+"""Serve the foreground gateway with isolated preview data for the browser."""
 import os
 import sys
 from pathlib import Path
@@ -20,4 +20,4 @@ path = bootstrap_config()
 data = yaml.safe_load(path.read_text())
 data['server']['port'] = 8790
 path.write_text(yaml.safe_dump(data, sort_keys=False))
-sys.exit(main(['--config', str(path)]))
+sys.exit(main(['serve', '--config', str(path)]))

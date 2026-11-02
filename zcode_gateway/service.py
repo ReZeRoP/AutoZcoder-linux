@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import re
+import threading
 import time
 import urllib.parse
 from collections import deque
@@ -14,11 +15,13 @@ from .aggregate import aggregate_openai_stream
 from .pool import Account, AccountState
 from .breaker import EdgeBlockBreaker
 from .model_retry import is_model_overload, overload_delay, retry_after_seconds, wait_for_retry
-from .zcode_protocol import MessageAccumulator, OpenAITranslator, usage_openai
+from .zcode_protocol import MessageAccumulator, OpenAITranslator, usage_openai, validate_stream_event
 from .upstream import (build_headers, build_upstream_body, iter_sse_events, sse_frame,
                        parse_upstream_error, anthropic_error, openai_error, TransportError,
-                       is_block_code)
+                       is_block_code, RelayRoutingError, safe_relay_diagnostics,
+                       ProviderBusyError, provider_busy_error)
 from .registry import model_caps
+from .stream_delivery import RequestControl, StreamPolicyError, OwnedVerifiedResponse
 
 log = logging.getLogger('zcode_gateway.service')
 
@@ -60,9 +63,39 @@ class CallResult:
     upstream_headers: dict
 
 
+@dataclass
+class VerifiedResult:
+    frames: tuple[bytes, ...]
+    result: CallResult
+
+
+def _stream_failure(exc, *, content_sent=False):
+    if isinstance(exc, StreamPolicyError):
+        return UpstreamFailure(exc.status, exc.code, exc.message, details=exc.details)
+    if isinstance(exc, UpstreamFailure):
+        return exc
+    if isinstance(exc, httpx.HTTPError):
+        return UpstreamFailure(502, 'upstream_stream_interrupted',
+            'The upstream connection ended before a complete response was received.',
+            details={'reason': 'transport_interruption', 'error_class': type(exc).__name__,
+                     'content_sent': content_sent})
+    return UpstreamFailure(502, 'invalid_stream',
+        'The upstream returned an invalid stream event or response.',
+        details={'reason': 'invalid_stream', 'content_sent': content_sent})
+
+
+def _stream_error_info(event):
+    info = event.get('error')
+    if not isinstance(info, dict):
+        raise ValueError('invalid upstream error event')
+    code = str(info.get('code') or info.get('type') or 'api_error')[:128]
+    message = info.get('message')
+    message = message if isinstance(message, str) else 'The upstream stream failed.'
+    return code, message
+
+
 def _snapshot_payload(payload):
-    """Copy of a request payload that survives open_stream mutating it (the
-    account pin is popped out of payload['_anthropic'] on each attempt)."""
+    """Snapshot request routing for private retries without sharing its dicts."""
     snap = dict(payload)
     if isinstance(snap.get('_anthropic'), dict):
         snap['_anthropic'] = dict(snap['_anthropic'])
@@ -82,19 +115,25 @@ def _sse_event(name, data):
     return (f'event: {name}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n').encode()
 
 
-async def upstream_events(resp):
+async def upstream_events(resp, control=None):
     pending = b''
     async for chunk in resp.aiter_bytes():
+        if control is not None:
+            control.check()
         pending += chunk
         frames, pending = _split_sse_frames(pending)
         if len(pending) > 4 * 1024 * 1024:
             raise UpstreamFailure(502, 'invalid_stream', 'upstream SSE frame exceeded 4 MB')
         for frame in frames:
-            for event in iter_sse_events(frame.decode('utf-8', 'replace')):
-                if isinstance(event, dict): yield event
+            if len(frame) > 4 * 1024 * 1024:
+                raise UpstreamFailure(502, 'invalid_stream', 'upstream SSE frame exceeded 4 MB')
+            for event in iter_sse_events(frame.decode('utf-8'), strict=True):
+                validate_stream_event(event)
+                yield event
     if pending.strip():
-        for event in iter_sse_events(pending.decode('utf-8', 'replace')):
-            if isinstance(event, dict): yield event
+        for event in iter_sse_events(pending.decode('utf-8'), strict=True):
+            validate_stream_event(event)
+            yield event
 
 
 class ChatService:
@@ -106,6 +145,13 @@ class ChatService:
         # mislabelled ENTITLEMENT_ERROR and parked accounts one by one until
         # the pool drained for a condition no account caused.
         self.breaker = EdgeBlockBreaker()
+        self._verified_controls = set()
+        self._owned_tasks = set()
+        self._delivery_tasks = set()
+        self._stopping = False
+        self._lifecycle_tasks = None
+        self._relay_record_slots = threading.BoundedSemaphore(4)
+        self._relay_record_futures = set()
 
         def _on_edge_block(count: int) -> None:
             try:
@@ -135,25 +181,45 @@ class ChatService:
         resp = await self.client._client.get(base + '/zcode-plan/billing/balance',
                                              timeout=10)
         return resp.status_code, resp.text
-    async def _close(self, handle):
+    async def _close(self, handle, control=None):
         if handle.closed: return
         handle.closed = True
-        try:
-            if handle.events is not None: await handle.events.aclose()
-        finally:
+        async def close():
             try:
-                await handle.resp.aclose()
+                if handle.events is not None: await handle.events.aclose()
             finally:
-                # Shield the release: on a client disconnect Starlette cancels
-                # the scope this runs in, and an await on the pool lock here
-                # would leak the in-flight slot FOREVER (cap reached after a
-                # few disconnects). Counter hygiene must not be cancellable.
                 try:
+                    await handle.resp.aclose()
+                finally:
+                    await self.pool.release(handle.account)
+        if control is None:
+            # Legacy realtime callers retain their shielded release behavior.
+            try:
+                if handle.events is not None: await handle.events.aclose()
+            finally:
+                try:
+                    await handle.resp.aclose()
+                finally:
                     await asyncio.shield(self.pool.release(handle.account))
-                except asyncio.CancelledError:
-                    # the shield's outer await was cancelled even though the
-                    # release itself completed — re-raise after the fact
-                    raise
+            return
+        task = control.spawn(close(), 'verified-upstream-close')
+        control.close_tasks.add(task)
+        # Keep actual cleanup owned even if the collector is cancelled again.
+        waiter = control.spawn(self._wait_close(task, control), 'verified-close-wait')
+        control.close_tasks.add(waiter)
+        await asyncio.shield(waiter)
+
+    @staticmethod
+    async def _wait_close(task, control):
+        done, _ = await asyncio.wait({task}, timeout=control.cleanup_timeout)
+        if task in done:
+            await task
+        else:
+            RequestControl.cancel_once(task)
+            if control.failure is None:
+                control.failure = control.error(504, 'stream_cleanup_timeout',
+                    'The upstream did not release the verified response before its cleanup deadline.')
+            raise control.failure
     async def _apply_error(self, account, model, status, code, message, headers=None):
         if is_model_overload(status, code):
             # A busy model is not evidence of a bad account or spent quota.
@@ -274,6 +340,9 @@ class ChatService:
     def _retryable(exc) -> bool:
         # transport-level only: a dead/cut connection, or a clean EOF with no
         # message_stop. Upstream error events and parse errors are not retried.
+        if isinstance(exc, StreamPolicyError) or (isinstance(exc, UpstreamFailure)
+                and exc.details.get('retryable') is False):
+            return False
         return isinstance(exc, httpx.HTTPError) or (
             isinstance(exc, UpstreamFailure) and exc.code == 'truncated_stream')
 
@@ -310,28 +379,34 @@ class ChatService:
                         'reporting the original failure', self._describe_failure(exc2))
             return None
 
-    async def open_stream(self, payload, *, model, variant='anthropic', dialect='openai', client_key='anonymous', is_disconnected=None):
+    async def open_stream(self, payload, *, model, variant='anthropic', dialect='openai', client_key='anonymous', is_disconnected=None, control=None):
+        if control is not None: control.check()
         snapshot = _snapshot_payload(payload)
         handle = await self._open_stream(payload, model=model, variant=variant, dialect=dialect,
-                                         client_key=client_key, is_disconnected=is_disconnected)
+                                         client_key=client_key, is_disconnected=is_disconnected, control=control)
 
         async def reopen():
             return await self.open_stream(_snapshot_payload(snapshot), model=model, variant=variant,
-                                          dialect=dialect, client_key=client_key)
+                                          dialect=dialect, client_key=client_key,
+                                          is_disconnected=is_disconnected, control=control)
         handle.reopen = reopen
         return handle
 
-    async def _open_stream(self, payload, *, model, variant='anthropic', dialect='openai', client_key='anonymous', is_disconnected=None):
+    async def _open_stream(self, payload, *, model, variant='anthropic', dialect='openai', client_key='anonymous', is_disconnected=None, control=None):
         fallback = self.cfg.models.auto_free_fallback
         chain = list(dict.fromkeys(self.registry.resolve(m, dialect) for m in fallback.chain))
         candidates = chain[chain.index(model):] if fallback.enabled and model in chain else [model]
         attempted = []
         for candidate in candidates:
+            if control is not None: control.check()
             attempted.append(candidate)
             try:
                 return await self._open_model_stream({**payload, 'model': candidate}, model=candidate,
-                    variant=variant, dialect=dialect, client_key=client_key, is_disconnected=is_disconnected)
+                    variant=variant, dialect=dialect, client_key=client_key, is_disconnected=is_disconnected, control=control)
+            except StreamPolicyError as exc:
+                raise _stream_failure(exc) from exc
             except UpstreamFailure as exc:
+                if exc.details.get('retryable') is False: raise
                 # Try the next model in the fallback chain for every error the
                 # account-parking path already handled (its own codes) AND the
                 # upstream's real rate-limit code — `rate_limit_error` was
@@ -346,16 +421,20 @@ class ChatService:
                     exc.details['attempted_models'] = attempted
                     raise
 
-    async def _open_model_stream(self, payload, *, model, variant='anthropic', dialect='openai', client_key='anonymous', is_disconnected=None):
+    async def _open_model_stream(self, payload, *, model, variant='anthropic', dialect='openai', client_key='anonymous', is_disconnected=None, control=None):
         # Only retry before a StreamHandle is returned. Never replay output or tools.
         attempts = self.cfg.upstream.overload_max_attempts
         for attempt in range(attempts):
+            if control is not None: control.check()
             if is_disconnected is not None and await is_disconnected():
                 raise asyncio.CancelledError()
             try:
                 return await self._open_model_stream_once(payload, model=model, variant=variant,
-                    dialect=dialect, client_key=client_key)
+                    dialect=dialect, client_key=client_key, is_disconnected=is_disconnected, control=control)
+            except StreamPolicyError as exc:
+                raise _stream_failure(exc) from exc
             except UpstreamFailure as exc:
+                if exc.details.get('retryable') is False: raise
                 if not is_model_overload(exc.status, exc.code):
                     raise
                 delay = overload_delay(self.cfg.upstream, attempt + 1, exc.retry_after)
@@ -364,9 +443,9 @@ class ChatService:
                     raise
                 log.info('ZCode model %s overloaded (%s); retry %s/%s in %.2fs',
                          model, exc.code, attempt + 1, attempts - 1, delay)
-                await wait_for_retry(delay, is_disconnected)
+                await wait_for_retry(delay, is_disconnected, control=control)
 
-    async def _open_model_stream_once(self, payload, *, model, variant='anthropic', dialect='openai', client_key='anonymous'):
+    async def _open_model_stream_once(self, payload, *, model, variant='anthropic', dialect='openai', client_key='anonymous', is_disconnected=None, control=None):
         if not self.registry.knows(model):
             raise UpstreamFailure(400, 'unknown_model', f'unknown ZCode model: {model}')
         # fail fast while the egress IP is edge-blocked: every account would
@@ -382,14 +461,22 @@ class ChatService:
         if not body.get('messages'):
             raise UpstreamFailure(400, 'invalid_request_error', 'at least one user or assistant message is required')
         supplied_metadata = 'metadata' in body
+        # Routing belongs to the request, not an individual attempt. Reading
+        # the shared native payload must not consume its pin on overload retry
+        # or model fallback. Only remove routing extensions from the built copy.
         target_account = (
-            payload.get("_anthropic", {}).pop("account", None)
-            or payload.get("_anthropic", {}).pop("account_id", None)
+            payload.get("_anthropic", {}).get("account")
+            or payload.get("_anthropic", {}).get("account_id")
             or payload.get("account")
             or payload.get("account_id")
         )
+        body.pop('account', None)
+        body.pop('account_id', None)
         tried, last = set(), None
         for attempt in range(max(1, self.cfg.upstream.max_attempts)):
+            if control is not None:
+                control.phase = 'acquiring'
+                control.check()
             account = await self.pool.acquire(tried, model=model, only_id=target_account)
             if account is None:
                 if last: raise last
@@ -413,6 +500,7 @@ class ChatService:
                     'user_id': json.dumps({'device_id': device_mid,
                         'account_uuid': '', 'session_id': headers['x-session-id']}, separators=(',', ':'))}
             resp, handle, transferred = None, None, False
+            opening_started = time.monotonic()
             try:
                 if account.expires_in() <= 0 and not await self.tokens.refresh(account):
                     # Expired token: strike-and-cool (like upstream 401s), not
@@ -426,9 +514,14 @@ class ChatService:
                 headers = build_headers(account.access_token, self.cfg.upstream.fingerprint,
                                         task_id=headers['x-session-id'], device_mid=account.notes.get('device_mid'),
                                         include_device_mid=False)
-                resp = await self.client.send(headers, body, stream=True)
+                resp = await self.client.send(headers, body, stream=True, **({'control': control} if control is not None else {}))
                 if resp.status_code != 200 or 'application/json' in resp.headers.get('content-type', ''):
                     raw = await resp.aread()
+                    busy = provider_busy_error(raw, resp.headers, control=control,
+                        manager=getattr(self.client, 'relay_manager', None),
+                        relay_url=getattr(resp, 'relay_url', None), status=resp.status_code)
+                    if busy is not None:
+                        raise busy
                     info = parse_upstream_error(resp.status_code, raw)
                     status, code, message = resp.status_code, str(info['code']), info['message']
                     if status == 200:
@@ -439,11 +532,16 @@ class ChatService:
                         headers = build_headers(account.access_token, self.cfg.upstream.fingerprint,
                                                 task_id=headers['x-session-id'], device_mid=account.notes.get('device_mid'),
                                                 include_device_mid=False)
-                        resp = await self.client.send(headers, body, stream=True)
+                        resp = await self.client.send(headers, body, stream=True, **({'control': control} if control is not None else {}))
                         if resp.status_code == 200 and 'application/json' not in resp.headers.get('content-type', ''):
                             status = 200
                         else:
                             raw = await resp.aread()
+                            busy = provider_busy_error(raw, resp.headers, control=control,
+                                manager=getattr(self.client, 'relay_manager', None),
+                                relay_url=getattr(resp, 'relay_url', None), status=resp.status_code)
+                            if busy is not None:
+                                raise busy
                             info = parse_upstream_error(resp.status_code, raw)
                             status, code, message = resp.status_code, str(info['code']), info['message']
                             if status == 200:
@@ -472,14 +570,21 @@ class ChatService:
                             raise last
                         tried.add(account.id)
                         continue
+                if control is not None:
+                    control.phase = 'opening'
+                    control.check()
                 handle = StreamHandle(account, headers, body, resp, variant, time.time())
-                handle.events = upstream_events(resp)
+                handle.events = upstream_events(resp, control=control)
                 # a clean stream through the CDN is evidence any prior edge
                 # block has lifted
                 self.breaker.note_success()
                 # An immediate SSE error must reach the client before HTTP 200 is committed.
                 while True:
                     first = await anext(handle.events, None)
+                    if control is not None:
+                        control.check()
+                        if first is not None and first.get('type') == 'ping':
+                            control.accept(first, 0)
                     if first is None:
                         raise UpstreamFailure(502, 'empty_stream', 'ZCode returned an empty event stream')
                     if first.get('type') == 'ping': continue
@@ -506,6 +611,31 @@ class ChatService:
                     transferred = True
                     handle, resp = None, None
                     return result
+            except StreamPolicyError as exc:
+                raise _stream_failure(exc) from exc
+            except (RelayRoutingError, ProviderBusyError) as exc:
+                diagnostic = safe_relay_diagnostics(exc.diagnostics)
+                busy = isinstance(exc, ProviderBusyError)
+                code = ('3009' if busy else exc.code if exc.code in ('relay_rate_limit_ambiguous',
+                    'relay_host_rate_limited', 'relay_candidates_exhausted') else 'relay_rate_limit_ambiguous')
+                status = 429 if busy else 503
+                recording = 'interrupted'
+                try:
+                    recording = await self._record_relay_failure(account, client_key, dialect, model,
+                        code, (time.monotonic() - opening_started) * 1000, status=status)
+                finally:
+                    log.warning('%s opening failed: code=%s recording=%s diagnostic=%s',
+                                'provider' if busy else 'relay', code, recording, diagnostic)
+                messages = {
+                    '3009': 'ZCode returned a busy/rate-limit response (3009). Retry manually later.',
+                    'relay_rate_limit_ambiguous': 'The relay rate-limit origin could not be verified; check the diagnostic before retrying.',
+                    'relay_host_rate_limited': 'The relay host is rate-limiting requests; distinct relay attempts were exhausted.',
+                    'relay_candidates_exhausted': 'No distinct relay candidate is available; direct routing was not attempted.',
+                }
+                details = {'retryable': False, 'terminal': True, 'diagnostic': diagnostic}
+                if busy:
+                    details['reason'] = 'provider_busy'
+                raise UpstreamFailure(status, code, messages[code], details=details) from exc
             except (TransportError, httpx.HTTPError) as exc:
                 # A block that arrived THROUGH a relay is the relay's exit-IP
                 # problem: UpstreamClient already rotated+cooled every relay
@@ -526,16 +656,26 @@ class ChatService:
                 await self.pool.cool(account, reason='transport_error')
                 last = UpstreamFailure(502, 'transport_error', 'could not reach ZCode')
                 tried.add(account.id)
+            except (ValueError, KeyError, TypeError, AttributeError) as exc:
+                raise _stream_failure(exc) from exc
             finally:
                 if handle is not None:
-                    await self._close(handle)
+                    await self._close(handle, control=control)
                 elif resp is not None:
-                    try: await resp.aclose()
-                    finally: await self.pool.release(account)
+                    if control is not None:
+                        cleanup_handle = StreamHandle(account, headers, body, resp, variant, time.time())
+                        await self._close(cleanup_handle, control=control)
+                    else:
+                        try: await resp.aclose()
+                        finally: await self.pool.release(account)
                 elif not transferred:
-                    await self.pool.release(account)
+                    if control is not None:
+                        release = control.spawn(self.pool.release(account), 'verified-pool-release')
+                        await asyncio.shield(release)
+                    else:
+                        await self.pool.release(account)
             if attempt + 1 < self.cfg.upstream.max_attempts:
-                await asyncio.sleep(0.1 * (attempt + 1))
+                await wait_for_retry(0.1 * (attempt + 1), is_disconnected, control=control)
         raise last or NoAccountsAvailable()
 
     async def stream(self, payload, *, model, variant='anthropic', dialect='openai', client_key='anonymous', anthropic=False):
@@ -548,15 +688,12 @@ class ChatService:
         model = handle.body['model']
         translator = OpenAITranslator(model)
         usage, stopped, status = {}, False, 200
-        captured = deque()
-        capture_size = 0
-        committed = False       # has anything beyond the prelude been handed to the client?
-        prelude = []            # message_start/ping held back until real content shows up,
-                                # so an early failure can be retried without the client noticing
-        seen = 0
+        captured, capture_size = deque(), 0
+        committed, prelude, seen = False, [], 0
         retries_left = self.STREAM_RETRIES
 
         def emit(event):
+            validate_stream_event(event)
             kind = event.get('type')
             if kind == 'message_start': usage.update(event['message'].get('usage') or {})
             if kind == 'message_delta': usage.update(event.get('usage') or {})
@@ -567,39 +704,40 @@ class ChatService:
             yield handle.first
             async for event in handle.events: yield event
         try:
-            while True:                     # one pass per upstream attempt
+            while True:
                 try:
                     async for event in events():
+                        validate_stream_event(event)
                         kind = event.get('type')
                         seen += 1
                         if self.capture.enabled and capture_size < 200000:
                             text = json.dumps(event, ensure_ascii=False)
                             captured.append(text)
                             capture_size += len(text)
-                        if not committed:
-                            if kind in ('message_start', 'ping'):
-                                prelude.append(event)
-                                continue
-                            committed = True
-                            for held in prelude:
-                                for out in emit(held): yield out
-                            prelude.clear()
-                        # OpenAI-shaped mid-stream error frame: {"error":{...}} with
-                        # no "type" key (captured 2026-09-16). Without this branch it
-                        # fell through to the Anthropic passthrough as `event: None`
-                        # — not in the Anthropic SSE vocabulary — and the account was
-                        # never parked for the failure.
                         if kind == 'error' or (kind is None and 'error' in event):
-                            info = event.get('error') or event
-                            code, message = str(info.get('code') or info.get('type') or 'api_error'), info.get('message', 'ZCode stream failed')
+                            code, message = _stream_error_info(event)
                             status = 529 if is_model_overload(502, code) else (429 if code in ('11113', 'rate_limit_error') else 502)
                             await self._apply_error(handle.account, model, status, code, message)
-                            self._log_stream_failure(handle, UpstreamFailure(status, code, message),
-                                                     committed=committed, events=seen, retry=False)
-                            yield _sse_event('error', event) if anthropic else sse_frame(openai_error(status, code, message))
-                            if not anthropic: yield b'data: [DONE]\n\n'
-                            return
-                        for out in emit(event): yield out
+                            raise UpstreamFailure(status, code, message)
+                        # Prelude carries no user output. Discard keepalive pings
+                        # while waiting rather than buffering an unbounded list.
+                        if kind == 'ping':
+                            if committed and anthropic:
+                                yield _sse_event('ping', event)
+                            continue
+                        frames = emit(event)
+                        if not committed and kind == 'message_start':
+                            if prelude:
+                                raise ValueError('duplicate upstream message start')
+                            prelude = frames
+                            continue
+                        if not frames:
+                            continue  # Empty OpenAI block setup is not delivery.
+                        if not committed:
+                            committed = True
+                            for out in prelude: yield out
+                            prelude.clear()
+                        for out in frames: yield out
                         if kind == 'message_stop':
                             stopped = True
                             if not anthropic: yield b'data: [DONE]\n\n'
@@ -608,13 +746,12 @@ class ChatService:
                     if not stopped:
                         raise UpstreamFailure(502, 'truncated_stream', 'ZCode stream ended before message_stop')
                     break
-                except (httpx.HTTPError, ValueError, KeyError, UpstreamFailure) as exc:
+                except (httpx.HTTPError, ValueError, KeyError, TypeError, AttributeError, UpstreamFailure) as exc:
                     fresh = await self._after_stream_failure(
                         handle, exc, committed=committed, events=seen, retries_left=retries_left)
                     if fresh is None:
-                        raise               # reported to the client below, as before
+                        raise
                     retries_left -= 1
-                    # the aborted attempt still counts as an upstream failure
                     self._record(handle.account, handle.headers, handle.body, 502, handle.resp.headers,
                                  '\n'.join(captured), (time.time() - handle.started) * 1000,
                                  client_key, dialect, model, usage)
@@ -626,84 +763,247 @@ class ChatService:
         except asyncio.CancelledError:
             status = 499
             raise
-        except (httpx.HTTPError, ValueError, KeyError, UpstreamFailure) as exc:
-            status = 502
-            code = getattr(exc, 'code', 'stream_error')
-            message = getattr(exc, 'message', 'ZCode stream interrupted')
-            error = anthropic_error(status, code, message) if anthropic else openai_error(status, code, message)
+        except (httpx.HTTPError, ValueError, KeyError, TypeError, AttributeError, UpstreamFailure) as exc:
+            failure = _stream_failure(exc, content_sent=committed)
+            status = failure.status
+            error = anthropic_error(status, failure.code, failure.message, failure.extra()) if anthropic else openai_error(status, failure.code, failure.message, failure.extra())
             yield _sse_event('error', error) if anthropic else sse_frame(error)
-            if not anthropic: yield b'data: [DONE]\n\n'
         finally:
             await self._close(handle)
             self._record(handle.account, handle.headers, handle.body, status, handle.resp.headers,
                          '\n'.join(captured), (time.time() - handle.started) * 1000,
                          client_key, dialect, model, usage)
 
-    async def complete(self, payload, *, model, variant='anthropic', dialect='openai', client_key='anonymous', is_disconnected=None):
-        handle = await self.open_stream(payload, model=model, variant=variant, dialect=dialect, client_key=client_key,
-                                        is_disconnected=is_disconnected)
-        retries_left = self.STREAM_RETRIES
-        fresh = None
-        while True:
-            if fresh is not None:
-                handle, fresh = fresh, None
-            model = handle.body['model']
-            accumulator, translator, chunks = MessageAccumulator(), OpenAITranslator(model), []
-            status, seen = 200, 0
+    async def _collect_verified(self, payload, *, model, variant, dialect, client_key, anthropic, is_disconnected, control=None):
+        snapshot = _snapshot_payload(payload)
+        limit = self.cfg.upstream.stream_buffer_max_bytes
+        previous_failure = None
+        for attempt in range(self.STREAM_RETRIES + 1):
+            if control is not None:
+                control.check()
+                control.attempts += 1
+            if is_disconnected is not None and await is_disconnected():
+                raise asyncio.CancelledError()
             try:
-                accumulator.feed(handle.first)
-                if dialect != 'anthropic': chunks.extend(sse_frame(c) for c in translator.feed(handle.first))
-                async for event in handle.events:
+                handle = await self.open_stream(_snapshot_payload(snapshot), model=model, variant=variant,
+                                               dialect=dialect, client_key=client_key,
+                                               is_disconnected=is_disconnected, control=control)
+            except asyncio.CancelledError:
+                raise
+            except (StreamPolicyError, UpstreamFailure) as exc:
+                if isinstance(exc, StreamPolicyError) or exc.details.get('retryable') is False:
+                    raise _stream_failure(exc) from exc
+                if previous_failure is not None:
+                    raise previous_failure from None
+                raise
+            except Exception:
+                if previous_failure is not None:
+                    # A failed reopen must not hide the original interrupted turn.
+                    raise previous_failure from None
+                raise
+            if control is not None: control.phase = 'collecting'
+            actual_model = handle.body['model']
+            accumulator = MessageAccumulator(strict=True)
+            translator, frames, size, seen = OpenAITranslator(actual_model), [], 0, 0
+            status, failure = 200, None
+            recorded_message = ''
+            async def events():
+                yield handle.first
+                async for event in handle.events: yield event
+            try:
+                async for event in events():
+                    if is_disconnected is not None and await is_disconnected():
+                        raise asyncio.CancelledError()
+                    if control is not None: control.check()
+                    validate_stream_event(event)
                     seen += 1
-                    if event.get('type') == 'error':
-                        info = event.get('error') or event
-                        code = str(info.get('code') or info.get('type') or 'api_error')
+                    kind = event.get('type')
+                    if kind == 'error' or (kind is None and 'error' in event):
+                        code, message = _stream_error_info(event)
                         status = 529 if is_model_overload(502, code) else (429 if code in ('11113', 'rate_limit_error') else (405 if is_block_code(code) else 502))
-                        message = info.get('message', 'ZCode stream failed')
-                        await self._apply_error(handle.account, model, status, code, message)
+                        await self._apply_error(handle.account, actual_model, status, code, message)
                         raise UpstreamFailure(status, code, message)
+                    if kind == 'ping':
+                        if control is not None: control.accept(event, 0)
+                        continue  # Not content; never retain an endless ping stream.
+                    # Account for both preserved output and accumulator input.
+                    # Fail closed before extending either representation.
+                    serialized = json.dumps(event, ensure_ascii=False).encode('utf-8')
+                    size += len(serialized)
+                    if size > limit:
+                        raise UpstreamFailure(502, 'stream_buffer_limit_exceeded',
+                                              'The verified response exceeded its configured buffer limit.',
+                                              details={'retryable': False, 'terminal': True})
                     accumulator.feed(event)
-                    if dialect != 'anthropic': chunks.extend(sse_frame(c) for c in translator.feed(event))
-                    if event.get('type') == 'message_stop': break
+                    if control is not None: control.accept(event, len(serialized))
+                    output = [_sse_event(kind, event)] if anthropic else [sse_frame(c) for c in translator.feed(event)]
+                    size += sum(map(len, output))
+                    if size > limit:
+                        raise UpstreamFailure(502, 'stream_buffer_limit_exceeded',
+                                              'The verified response exceeded its configured buffer limit.',
+                                              details={'retryable': False, 'terminal': True})
+                    frames.extend(output)
+                    if kind == 'message_stop':
+                        break
                 if not accumulator.stopped:
                     raise UpstreamFailure(502, 'truncated_stream', 'ZCode stream ended before message_stop')
                 message = accumulator.finish()
-                raw = json.dumps(message, ensure_ascii=False).encode() if dialect == 'anthropic' else b''.join(chunks)
+                if control is not None: control.verified = True
+                if not anthropic:
+                    terminal = b'data: [DONE]\n\n'
+                    if size + len(terminal) > limit:
+                        raise UpstreamFailure(502, 'stream_buffer_limit_exceeded',
+                                              'The verified response exceeded its configured buffer limit.',
+                                              details={'retryable': False, 'terminal': True})
+                    frames.append(terminal)
+                recorded_message = json.dumps(message, ensure_ascii=False)
+                raw = recorded_message.encode('utf-8') if dialect == 'anthropic' else b''.join(frames[:-1] if not anthropic else frames)
                 await self.pool.on_success(handle.account)
-                self._record(handle.account, handle.headers, handle.body, 200, handle.resp.headers,
-                             json.dumps(message, ensure_ascii=False), (time.time() - handle.started) * 1000,
-                             client_key, dialect, model, message['usage'])
-                return CallResult(handle.account, 200, raw, (time.time()-handle.started)*1000, handle.resp.headers)
-            except UpstreamFailure as exc:
-                self._record(handle.account, handle.headers, handle.body, exc.status, handle.resp.headers,
-                             json.dumps({'error': exc.message}), (time.time() - handle.started)*1000,
-                             client_key, dialect, model, accumulator.message.get('usage') or {})
-                # non-streaming: nothing has reached the client, so a cut or
-                # truncated stream is retried whatever it had produced so far
-                fresh = await self._after_stream_failure(
-                    handle, exc, committed=False, events=seen, retries_left=retries_left)
-                if fresh is None:
-                    raise
-                retries_left -= 1
-            except (httpx.HTTPError, ValueError, KeyError) as exc:
-                self._record(handle.account, handle.headers, handle.body, 502, handle.resp.headers,
-                             '{"error":"malformed stream"}', (time.time() - handle.started)*1000,
-                             client_key, dialect, model, accumulator.message.get('usage') or {})
-                fresh = await self._after_stream_failure(
-                    handle, exc, committed=False, events=seen, retries_left=retries_left)
-                if fresh is None:
-                    raise UpstreamFailure(502, 'invalid_stream', 'ZCode returned an incomplete or malformed response') from exc
-                retries_left -= 1
+                result = CallResult(handle.account, 200, raw,
+                                    (time.time() - handle.started) * 1000, handle.resp.headers)
+                return VerifiedResult(tuple(frames), result)
+            except asyncio.CancelledError:
+                normalized = _stream_failure(control.failure) if control is not None and control.failure is not None else None
+                status = normalized.status if normalized else 499
+                recorded_message = json.dumps({'error': normalized.code if normalized else 'request_cancelled'})
+                raise
+            except (httpx.HTTPError, ValueError, KeyError, TypeError, AttributeError, UpstreamFailure, StreamPolicyError) as exc:
+                failure = exc
+                normalized = _stream_failure(exc)
+                status = normalized.status
+                recorded_message = json.dumps({'error': normalized.code})
+                will_retry = attempt < self.STREAM_RETRIES and self._retryable(exc)
+                if control is not None:
+                    log.warning('verified attempt failed: code=%s diagnostics=%s%s',
+                                normalized.code, control.diagnostics(),
+                                ' - retrying transparently' if will_retry else '')
+                else:
+                    self._log_stream_failure(handle, exc, committed=False, events=seen, retry=will_retry)
+                if not will_retry:
+                    if normalized is exc:
+                        raise
+                    raise normalized from exc
+                previous_failure = normalized
             finally:
-                await self._close(handle)
+                try:
+                    await self._close(handle, control=control)
+                finally:
+                    self._record(handle.account, handle.headers, handle.body, status, handle.resp.headers,
+                                 recorded_message, (time.time() - handle.started) * 1000,
+                                 client_key, dialect, actual_model, accumulator.message.get('usage') or {})
+            if failure is not None:
+                await wait_for_retry(0.15, is_disconnected, control=control)
+        raise UpstreamFailure(502, 'upstream_stream_interrupted', 'The upstream could not complete the response.')
+
+    def preflight(self, payload, *, model, variant='anthropic'):
+        if not self.registry.knows(model):
+            raise UpstreamFailure(400, 'unknown_model', f'unknown ZCode model: {model}')
+        try:
+            body = self._build({**payload, 'model': model}, variant, model=model)
+        except (ValueError, KeyError, TypeError, AttributeError) as exc:
+            raise UpstreamFailure(400, 'invalid_request_error', str(exc)) from exc
+        if not body.get('messages'):
+            raise UpstreamFailure(400, 'invalid_request_error', 'at least one user or assistant message is required')
+
+    def verified_response(self, payload, *, model, variant='anthropic', dialect='openai',
+                          client_key='anonymous', anthropic=False, headers=None):
+        self.preflight(payload, model=model, variant=variant)
+        return OwnedVerifiedResponse(self, _snapshot_payload(payload), model=model,
+            variant=variant, dialect=dialect, client_key=client_key,
+            anthropic=anthropic, headers=headers)
+
+    def _admit_verified(self):
+        if self._stopping or len(self._verified_controls) >= self.cfg.upstream.stream_max_concurrent:
+            raise UpstreamFailure(503, 'stream_admission_rejected',
+                'The gateway has no free verified delivery slot.',
+                details={'retryable': False, 'terminal': True})
+        control = RequestControl(self.cfg.upstream)
+        # Share the existing lifecycle task set once wired by AppState.
+        control.owner = self._lifecycle_tasks if self._lifecycle_tasks is not None else self._owned_tasks
+        self._verified_controls.add(control)
+        return control
+
+    def _release_verified(self, control):
+        # Pending cancellation-resistant cleanup keeps admission, rather than
+        # creating an unlimited queue of abandoned buffers/reservations.
+        if any(not task.done() for task in control.tasks):
+            control.on_idle = lambda: self._verified_controls.discard(control)
+        else:
+            self._verified_controls.discard(control)
+
+    def _start_verified(self, payload, *, control, **options):
+        return control.spawn(self._collect_verified(payload, is_disconnected=None,
+                                                     control=control, **options),
+                             'verified-collector')
+
+    def begin_stopping(self):
+        self._stopping = True
+        for control in tuple(self._verified_controls):
+            for task in tuple(control.tasks):
+                if task not in control.close_tasks:
+                    task.get_loop().call_soon_threadsafe(RequestControl.cancel_once, task)
+        for task in tuple(self._delivery_tasks):
+            task.get_loop().call_soon_threadsafe(RequestControl.cancel_once, task)
+
+    async def verified_stream(self, payload, *, model, variant='anthropic', dialect='openai', client_key='anonymous', anthropic=False, is_disconnected=None):
+        # Non-streaming compatibility entry point. Only this watcher consumes
+        # request.is_disconnected; the collector never competes for receive().
+        self.preflight(payload, model=model, variant=variant)
+        control = self._admit_verified()
+        work = self._start_verified(payload, control=control, model=model, variant=variant,
+                                    dialect=dialect, client_key=client_key, anthropic=anthropic)
+        async def disconnect():
+            while True:
+                if await is_disconnected():
+                    control.disconnected = True
+                    return
+                await asyncio.sleep(.1)
+        watcher = control.spawn(disconnect(), 'verified-disconnect') if is_disconnected else None
+        try:
+            while not work.done():
+                control.check()
+                done, _ = await asyncio.wait({work} | ({watcher} if watcher else set()),
+                    timeout=control.until_check(), return_when=asyncio.FIRST_COMPLETED)
+                if watcher is not None and watcher in done:
+                    raise asyncio.CancelledError()
+                if work in done:
+                    break
+                control.check()
+            return await work
+        except StreamPolicyError as exc:
+            control.failure = exc
+            raise _stream_failure(exc) from exc
+        finally:
+            control.phase = 'cleanup'
+            cleanup = control.spawn(control.cleanup(tuple(control.tasks)), 'verified-owned-cleanup')
+            try:
+                await asyncio.shield(cleanup)
+            except asyncio.CancelledError:
+                pass
+            self._release_verified(control)
+
+    async def complete(self, payload, *, model, variant='anthropic', dialect='openai', client_key='anonymous', is_disconnected=None):
+        verified = await self.verified_stream(payload, model=model, variant=variant, dialect=dialect,
+                                              client_key=client_key, anthropic=dialect == 'anthropic',
+                                              is_disconnected=is_disconnected)
+        return verified.result
 
     def _record(self, account, headers, body, status, response_headers, response, duration, key, dialect, model, usage):
         converted = usage_openai(usage)
+        error_code = None if status == 200 else f'http_{status}'
+        if status != 200:
+            try:
+                recorded = json.loads(response)
+                code = recorded.get('error') if isinstance(recorded, dict) else None
+                if isinstance(code, str) and code.startswith('stream_'):
+                    error_code = code[:128]
+            except (ValueError, TypeError):
+                pass
         rec = dict(account_id=account.id, client_key=key, dialect=dialect, model=model,
                    variant='anthropic', stream=int(body.get('stream', True)), status=status,
                    duration_ms=duration, prompt_tokens=converted['prompt_tokens'],
                    completion_tokens=converted['completion_tokens'], total_tokens=converted['total_tokens'],
-                   error_code=None if status == 200 else f'http_{status}')
+                   error_code=error_code)
         cap = dict(request_headers=headers, request_body=body, status=status,
                    response_headers=dict(response_headers), response_body=response)
         # Disk I/O off the event loop: SQLite/JSONL writes (and AV scans on
@@ -717,9 +1017,41 @@ class ChatService:
         else:
             self._write_record(rec, cap)
 
+    async def _record_relay_failure(self, account, key, dialect, model, code, duration, *, status=503):
+        """Bound safe ledger writes independently of prompt-bearing capture work."""
+        if not self._relay_record_slots.acquire(blocking=False):
+            return 'saturated'
+        rec = dict(account_id=account.id, client_key=key, dialect=dialect, model=model,
+                   variant='anthropic', stream=1, status=status, duration_ms=duration,
+                   prompt_tokens=None, completion_tokens=None, total_tokens=None, error_code=code)
+        def write():
+            try:
+                return self._write_record(rec, None)
+            finally:
+                # An asyncio cancellation cannot stop the executor's disk I/O.
+                self._relay_record_slots.release()
+        try:
+            future = asyncio.get_running_loop().run_in_executor(None, write)
+        except Exception:
+            self._relay_record_slots.release()
+            return 'failed'
+        self._relay_record_futures.add(future)
+        future.add_done_callback(self._relay_record_futures.discard)
+        done, _ = await asyncio.wait({future}, timeout=1)
+        if future not in done:
+            return 'pending'
+        try:
+            return 'stored' if future.result() else 'failed'
+        except Exception:
+            return 'failed'
+
     def _write_record(self, rec, cap):
         try:
             self.store.record(**rec)
-            self.capture.write(**cap)
+            if cap is not None:
+                self.capture.write(**cap)
+            return True
         except Exception:
-            log.debug("store/capture write failed", exc_info=True)
+            if cap is not None:
+                log.debug("store/capture write failed", exc_info=True)
+            return False

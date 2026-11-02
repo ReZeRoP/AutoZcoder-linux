@@ -2,7 +2,7 @@ name: Linux tests
 
 on:
   push:
-    branches: [main, master, linux-port]
+    branches: [main, master, linux-port, 'feature/**']
   pull_request:
   workflow_dispatch:
   workflow_call:
@@ -30,3 +30,22 @@ jobs:
           python -m compileall -q zcode_gateway generator
           bash -n packaging/fedora/bootstrap.sh packaging/fedora/build-rpm.sh
           python -m py_compile packaging/fedora/autozcoder
+          node --test tests/test_dashboard_connection.cjs tests/test_studio_overview.cjs tests/test_ui_preferences.cjs tests/test_ui_usability.cjs tests/test_dashboard_usability.cjs tests/test_confirmation_keyboard.cjs tests/test_proxy_relay_ui.cjs tests/test_relay_templates.cjs
+
+  packaging:
+    runs-on: ubuntu-latest
+    container: fedora:44
+    steps:
+      - name: Install Fedora verification tools
+        run: dnf install -y git python3 rpm-build systemd systemd-rpm-macros desktop-file-utils nodejs
+      - uses: actions/checkout@v4
+      - name: Verify inert user service and packaging
+        run: |
+          python3 packaging/fedora/test-packaging.py
+          desktop-file-validate packaging/fedora/autozcoder.desktop
+          rpmspec -q --srpm packaging/fedora/autozcoder.spec
+          # Container-only executable fixture for systemd's ExecStart validation.
+          install -m 755 packaging/fedora/autozcoder /usr/bin/autozcoder
+          mkdir -p /tmp/autozcoder-unit-verify
+          chmod 700 /tmp/autozcoder-unit-verify
+          XDG_RUNTIME_DIR=/tmp/autozcoder-unit-verify systemd-analyze --user verify packaging/fedora/autozcoder.service

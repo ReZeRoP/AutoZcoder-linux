@@ -216,7 +216,9 @@ class _BlockedRelayClient:
     """The upstream client when every relay's exit IP is flagged by z.ai."""
     calls = 0
 
-    async def send(self, headers, body, stream):
+    async def send(self, headers, body, stream, control=None):
+        if control is not None:
+            control.before_send()
         from zcode_gateway.upstream import UpstreamBlockThroughRelay
         type(self).calls += 1
         raise UpstreamBlockThroughRelay("relay https://relay.example.dev exit IP flagged (405/3012)")

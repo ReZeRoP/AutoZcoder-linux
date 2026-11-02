@@ -31,6 +31,23 @@ class PackagingTests(unittest.TestCase):
         self.assertEqual(read_version(), rpm_version)
         self.assertEqual(stage_path().name, f"autozcoder-{rpm_version}-fedora")
 
+    def test_user_service_is_disabled_and_inert(self):
+        unit = (ROOT / "packaging/fedora/autozcoder.service").read_text()
+        spec = (ROOT / "packaging/fedora/autozcoder.spec").read_text()
+        self.assertIn("ExecStart=/usr/bin/autozcoder serve --user-service", unit)
+        self.assertIn("WantedBy=default.target", unit)
+        self.assertIn("RestartPreventExitStatus=73 78", unit)
+        self.assertIn("KillMode=control-group", unit)
+        self.assertIn("TimeoutStopSec=20", unit)
+        self.assertIn("UMask=0077", unit)
+        self.assertIn("%{_userunitdir}/autozcoder.service", spec)
+        self.assertTrue(staging.eligible_source("packaging/fedora/autozcoder.service"))
+        for forbidden in ("%post", "%preun", "%postun", "%systemd_user_", "enable-linger",
+                          "default.target.wants", "graphical-session.target", "DISPLAY=", "WAYLAND_DISPLAY="):
+            self.assertNotIn(forbidden, spec + unit)
+        launcher = (ROOT / "packaging/fedora/autozcoder").read_text()
+        self.assertIn("from zcode_gateway.linux_cli import main", launcher)
+
     def test_version_does_not_import_application(self):
         root = self.temporary()
         (root / "zcode_gateway").mkdir()

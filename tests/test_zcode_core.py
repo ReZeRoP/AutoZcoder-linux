@@ -424,7 +424,7 @@ def busy_response(status=529):
 @pytest.mark.asyncio
 async def test_overload_waits_and_reuses_single_account_without_blocking_flash(service, monkeypatch):
     delays = []
-    async def wait(delay, disconnected=None):
+    async def wait(delay, disconnected=None, control=None):
         delays.append(delay)
         account = (await service.pool.all())[0]
         assert account.state is AccountState.READY
@@ -450,7 +450,7 @@ async def test_overload_rotates_accounts_after_wait_without_cooling(service, mon
     service.cfg.pool.strategy = 'least_in_flight'
     await service.pool.upsert(Account(id='two', access_token='token-two'))
     waits = []
-    async def wait(delay, disconnected=None): waits.append(delay)
+    async def wait(delay, disconnected=None, control=None): waits.append(delay)
     monkeypatch.setattr('zcode_gateway.service.wait_for_retry', wait)
     service.client = FakeClient(responses=[busy_response(), busy_response(), busy_response(), FakeResponse(sample_sse())])
     await service.complete({'messages':[{'role':'user','content':'hi'}]}, model='GLM-5.3')
@@ -462,7 +462,7 @@ async def test_overload_rotates_accounts_after_wait_without_cooling(service, mon
 @pytest.mark.asyncio
 async def test_persistent_overload_has_bounded_attempts_and_preserves_real_error(service, monkeypatch):
     waits = []
-    async def wait(delay, disconnected=None): waits.append(delay)
+    async def wait(delay, disconnected=None, control=None): waits.append(delay)
     monkeypatch.setattr('zcode_gateway.service.wait_for_retry', wait)
     service.client = FakeClient(responses=[busy_response() for _ in range(11)])
     with pytest.raises(UpstreamFailure) as err:
@@ -476,7 +476,7 @@ async def test_persistent_overload_has_bounded_attempts_and_preserves_real_error
 
 @pytest.mark.asyncio
 async def test_initial_sse_overload_retries_before_headers(service, monkeypatch):
-    async def wait(delay, disconnected=None): pass
+    async def wait(delay, disconnected=None, control=None): pass
     monkeypatch.setattr('zcode_gateway.service.wait_for_retry', wait)
     service.client = FakeClient(responses=[FakeResponse(frame({'type':'error','error':{'type':'overloaded_error','message':'busy'}})), FakeResponse(sample_sse())])
     result = await service.complete({'messages':[{'role':'user','content':'hi'}]}, model='GLM-5.3')
@@ -499,7 +499,7 @@ async def test_overload_after_output_is_not_replayed(service):
 @pytest.mark.asyncio
 async def test_overload_respects_retry_after(service, monkeypatch):
     waits = []
-    async def wait(delay, disconnected=None): waits.append(delay)
+    async def wait(delay, disconnected=None, control=None): waits.append(delay)
     monkeypatch.setattr('zcode_gateway.service.wait_for_retry', wait)
     response = busy_response()
     response.headers['retry-after'] = '7'
@@ -512,7 +512,7 @@ async def test_overload_respects_retry_after(service, monkeypatch):
 async def test_cancel_during_overload_backoff_releases_reservation(service, monkeypatch):
     from zcode_gateway.model_retry import wait_for_retry
     async def disconnected(): return True
-    async def wait(delay, ignored=None): await wait_for_retry(delay, disconnected)
+    async def wait(delay, ignored=None, control=None): await wait_for_retry(delay, disconnected, control)
     monkeypatch.setattr('zcode_gateway.service.wait_for_retry', wait)
     service.client = FakeClient(responses=[busy_response()])
     with pytest.raises(asyncio.CancelledError):

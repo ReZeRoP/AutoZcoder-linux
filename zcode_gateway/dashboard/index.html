@@ -3,360 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Zcode Gateway</title>
-<style>
-:root{
-  --bg:#0f1115; --panel:#151820; --card:#1a1e27; --elev:#222736;
-  --field:#10131a; --stripe:#161a22; --border:#262c3a;
-  --accent:#8b7cf7; --accent-deep:#8072eb; --accent-soft:#b3a7fb; --accent-dim:#2c2b45;
-  --fg:#e8eaf0; --muted:#9aa1b2; --faint:#929bad;
-  --ok:#3ddc84; --warn:#ffc857; --err:#ff6b7a; --success:#3fb950;
-  --r:10px;
-}
-*{box-sizing:border-box; margin:0; padding:0}
-html,body{height:100%}
-body{
-  background:var(--bg); color:var(--fg);
-  font:14px/1.5 "Segoe UI", system-ui, sans-serif;
-  display:flex; overflow:hidden;
-}
-.mono{font-family:"Cascadia Mono","Consolas",monospace; font-size:12px}
-a{color:var(--accent-soft); text-decoration:none}
-a:hover{text-decoration:underline}
-
-/* ---------- layout ---------- */
-#side{width:212px; flex:none; background:var(--panel); border-right:1px solid var(--border);
-  display:flex; flex-direction:column; padding:18px 12px;}
-#main{flex:1; display:flex; flex-direction:column; min-width:0}
-#view{flex:1; overflow-y:auto; padding:22px 26px 40px}
-
-/* ---------- brand ---------- */
-#brand{display:flex; align-items:center; gap:10px; padding:2px 6px 18px; border-bottom:1px solid var(--border); margin-bottom:14px}
-#brand .mark{width:5px; height:34px; background:var(--accent); border-radius:2px; flex:none}
-#brand b{font:600 16px "Segoe UI Semibold", "Segoe UI", sans-serif; display:block}
-#brand small{color:var(--faint); font-size:11px}
-#brand small:hover{text-decoration:underline; color:var(--accent-soft)}
-
-/* ---------- nav ---------- */
-.nav-btn{display:flex; align-items:center; gap:11px; width:100%; text-align:left;
-  background:none; border:0; color:var(--muted); padding:10px 12px; border-radius:8px;
-  font:14px "Segoe UI", sans-serif; cursor:pointer; margin-bottom:2px}
-.nav-btn:hover{background:var(--elev); color:var(--fg)}
-.nav-btn.on{background:var(--accent-dim); color:var(--fg)}
-.nav-btn .ico{width:17px; text-align:center; font-size:15px; flex:none; opacity:.9}
-.nav-btn.on .ico{color:var(--accent-soft)}
-#side .spacer{flex:1}
-#side .foot{padding:10px 12px 2px; border-top:1px solid var(--border); color:var(--faint); font-size:11px}
-
-/* ---------- top bar ---------- */
-#top{display:flex; align-items:center; gap:10px; padding:14px 22px; border-bottom:1px solid var(--border); background:var(--panel)}
-#top h1{font:600 15px "Segoe UI Semibold","Segoe UI",sans-serif; margin-right:auto}
-.chip{display:inline-flex; align-items:center; gap:7px; background:var(--card);
-  border:1px solid var(--border); border-radius:999px; padding:5px 12px; font-size:12px; color:var(--muted)}
-#notify-panel{position:fixed; inset:0; background:rgba(5,7,10,.72); display:none;
-  z-index:220; overflow-y:auto}
-#notify-panel .card{max-width:640px; width:min(640px, calc(100vw - 32px));
-  margin:9vh auto 24px; box-shadow:0 18px 48px rgba(0,0,0,.5);
-  border:1px solid var(--border); background:var(--panel)}
-.dot{width:7px; height:7px; border-radius:50%; background:var(--muted); flex:none}
-.dot.ok{background:var(--ok); box-shadow:0 0 0 3px rgba(61,220,132,.15)}
-.dot.warn{background:var(--warn); box-shadow:0 0 0 3px rgba(255,200,87,.14)}
-.dot.err{background:var(--err); box-shadow:0 0 0 3px rgba(255,107,122,.14)}
-.dot.off{background:var(--faint)}
-
-/* ---------- buttons ---------- */
-.btn{border:0; border-radius:8px; cursor:pointer; font:600 13px "Segoe UI",sans-serif;
-  padding:9px 16px; transition:background .12s, border-color .12s, color .12s}
-.btn-pri{background:var(--accent); color:#0e0b22}
-.btn-pri:hover{background:var(--accent-deep)}
-.btn-pri:disabled{background:var(--elev); color:var(--faint); cursor:default}
-.btn-ghost{background:var(--card); color:var(--fg); border:1px solid var(--border)}
-.btn-ghost:hover{background:var(--elev); border-color:var(--accent-dim)}
-.btn-quiet{background:transparent; color:var(--muted)}
-.btn-quiet:hover{background:var(--elev); color:var(--fg)}
-.btn-sm{padding:6px 11px; font-size:12px}
-.btn-danger:hover{border-color:var(--err); color:var(--err)}
-
-/* ---------- cards ---------- */
-.card{background:var(--card); border:1px solid var(--border); border-radius:var(--r);
-  padding:16px 18px; margin-bottom:16px}
-.card h2{font:600 13px "Segoe UI Semibold",sans-serif; margin-bottom:10px}
-.card h3{font:600 11px "Segoe UI Semibold",sans-serif; color:var(--faint);
-  text-transform:uppercase; letter-spacing:.07em; margin-bottom:8px}
-.grid2{display:grid; grid-template-columns:1fr 1fr; gap:16px}
-.kpis{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:16px}
-.kpi{background:var(--card); border:1px solid var(--border); border-radius:var(--r); padding:13px 15px}
-.kpi .v{font:600 22px "Segoe UI Semibold",sans-serif}
-.kpi .k{color:var(--muted); font-size:12px; margin-top:2px}
-
-/* ---------- tables ---------- */
-table{width:100%; border-collapse:collapse; font-size:13px}
-th{color:var(--faint); font:600 10px "Segoe UI Semibold",sans-serif; text-transform:uppercase;
-  letter-spacing:.06em; text-align:left; padding:8px 10px; border-bottom:1px solid var(--border);
-  cursor:default; position:sticky; top:0; background:var(--card); z-index:1}
-th.sortable{cursor:pointer} th.sortable:hover{color:var(--fg)}
-td{padding:9px 10px; border-bottom:1px solid var(--border); vertical-align:middle}
-tbody tr{transition:background .1s}
-tbody tr:hover{background:var(--elev)}
-tbody tr:nth-child(even){background:var(--stripe)}
-tbody tr:nth-child(even):hover{background:var(--elev)}
-tbody tr.sel{background:var(--accent-dim) !important}
-.tbl-wrap{border:1px solid var(--border); border-radius:var(--r); overflow:auto; background:var(--card)}
-
-/* ---------- states ---------- */
-.badge{display:inline-block; padding:2px 9px; border-radius:999px; font-size:11px; font-weight:600}
-.b-ready,.b-available{background:rgba(61,220,132,.13); color:var(--ok)}
-.b-cooling,.b-partial,.b-no_credit{background:rgba(255,200,87,.13); color:var(--warn)}
-.b-dead,.b-exhausted,.b-blocked,.b-capped,.b-no_entitlement{background:rgba(255,107,122,.13); color:var(--err)}
-.b-paid_exhausted,.b-unavailable{background:rgba(179,167,251,.13); color:var(--accent-soft)}
-.b-usage,.b-free,.b-plan{background:rgba(154,161,178,.12); color:var(--muted)}
-
-/* ---------- forms ---------- */
-input[type=text],input[type=search],input[type=number],input[type=password],select{
-  background:var(--field); color:var(--fg); border:1px solid var(--border);
-  border-radius:8px; padding:8px 11px; font:13px "Segoe UI",sans-serif; outline:none; width:100%}
-input:focus,select:focus{border-color:var(--accent)}
-input::placeholder{color:var(--faint)}
-.field{margin-bottom:13px}
-.field label{display:block; color:var(--muted); font-size:12px; margin-bottom:5px}
-.field .help{color:var(--faint); font-size:11px; margin-top:4px}
-fieldset{border:1px solid var(--border); border-radius:var(--r); padding:14px 16px; margin-bottom:16px; background:var(--card)}
-legend{padding:0 8px; color:var(--faint); font:600 11px "Segoe UI Semibold",sans-serif;
-  text-transform:uppercase; letter-spacing:.07em}
-.kv{display:grid; grid-template-columns:auto 1fr; gap:6px 18px; font-size:13px}
-.kv dt{color:var(--muted)} .kv dd{color:var(--fg)}
-.copyable{cursor:pointer} .copyable:hover{color:var(--accent-soft)}
-
-/* ---------- misc ---------- */
-.toolbar{display:flex; align-items:center; gap:10px; margin-bottom:14px}
-.toolbar .grow{flex:1}
-.empty{padding:44px 20px; text-align:center; color:var(--muted)}
-.empty h3{font:600 16px "Segoe UI Semibold",sans-serif; color:var(--fg);
-  text-transform:none; letter-spacing:0; margin-bottom:8px}
-.steps{display:flex; gap:26px; margin:14px 0 20px; flex-wrap:wrap}
-.steps div{display:flex; gap:9px; align-items:baseline}
-.steps b{color:var(--accent); font-size:19px}
-#toast{position:fixed; left:50%; bottom:22px; transform:translateX(-50%);
-  background:var(--card); border:1px solid var(--border); border-radius:999px;
-  padding:9px 18px; font-size:13px; display:none; z-index:50; max-width:80%;
-  box-shadow:0 8px 30px rgba(0,0,0,.45)}
-#toast.ok{border-color:var(--ok); color:var(--ok)}
-#toast.err{border-color:var(--err); color:var(--err)}
-#toast.warn{border-color:var(--warn); color:var(--warn)}
-#login{max-width:360px; margin:12vh auto; text-align:center}
-#login .card{text-align:left}
-.mono-list{font-family:"Cascadia Mono",monospace; font-size:12px; white-space:pre-wrap; word-break:break-all}
-canvas.chart{width:100%; height:190px}
-.scroll{max-height:340px; overflow-y:auto}
-details{margin-bottom:8px}
-summary{cursor:pointer; color:var(--muted); font-size:13px; padding:6px 0}
-summary:hover{color:var(--fg)}
-.model-acc{padding:8px 12px; border-left:2px solid var(--border); margin:2px 0 10px 8px; font-size:12px; color:var(--muted)}
-
-/* ---------- responsive ---------- */
-/* The WebView2 window can shrink to ~980x620; below that the fixed sidebar
-   and two-column grids overflow. Collapse gracefully instead. */
-@media (max-width: 960px){
-  body{flex-direction:column; overflow:auto}
-  #side{width:100%; flex:none; flex-direction:row; align-items:center;
-    flex-wrap:wrap; padding:10px 12px; border-right:0; border-bottom:1px solid var(--border)}
-  #brand{border-bottom:0; margin-bottom:0; padding:0 10px 0 6px}
-  .nav-btn{width:auto; margin-bottom:0; padding:8px 10px}
-  #side .spacer{display:none}
-  #side .foot{border-top:0; padding:0 10px; margin-left:auto}
-  #top{flex-wrap:wrap; padding:10px 14px}
-  #view{padding:14px 14px 40px; overflow:visible}
-  #notify-panel .card{margin-top:6vh}
-  .grid2{grid-template-columns:1fr}
-  .dense-grid{grid-template-columns:1fr}
-  .dense .field{grid-template-columns:1fr}
-  .dense .field .help{grid-column:1}
-  .kv{grid-template-columns:1fr}
-  .steps{gap:14px}
-}
-@media (max-width: 640px){
-  .kpis{grid-template-columns:1fr 1fr}
-  .toolbar{flex-wrap:wrap}
-  #top h1{font-size:13px}
-}
-
-/* ---------- compact models table ---------- */
-.tbl-compact td{padding:5px 10px; font-size:12.5px}
-.tbl-compact details{margin:0}
-.tbl-compact summary{padding:0; list-style:none; display:flex; align-items:center; gap:8px}
-.tbl-compact summary::-webkit-details-marker{display:none}
-.tbl-compact summary .caret{color:var(--faint); font-size:10px; transition:transform .12s; flex:none}
-.tbl-compact details[open] summary .caret{transform:rotate(90deg)}
-.tbl-compact .model-acc{margin:6px 0 4px 4px; padding:4px 10px}
-th .arr{font-size:9px; margin-left:3px; color:var(--accent-soft)}
-
-/* ---------- dense settings ---------- */
-.dense-grid{display:grid; grid-template-columns:1fr 1fr; gap:14px}
-.dense fieldset{margin-bottom:0}
-.dense .field{display:grid; grid-template-columns:150px 1fr; gap:2px 12px;
-  align-items:center; margin-bottom:7px}
-.dense .field label{margin-bottom:0; font-size:12px}
-.dense .field .help{grid-column:2; margin-top:1px}
-.dense input[type=text],.dense input[type=search],.dense input[type=number],.dense select{padding:6px 9px; font-size:12.5px}
-
-/* ---------- guide ---------- */
-.guide h2{margin-top:0}
-.guide ol{margin:8px 0 10px 20px; color:var(--muted)}
-.guide ol li{margin-bottom:6px}
-.guide .note{color:var(--faint); font-size:12px; margin-top:8px}
-.guide kbd{background:var(--elev); border:1px solid var(--border); border-radius:5px;
-  padding:1px 7px; font:12px "Cascadia Mono",monospace}
-
-/* ---------- confirm modal ---------- */
-#confirm-modal, #login-modal, #relay-modal, #setup-modal{position:fixed; inset:0; background:rgba(5,7,10,.72);
-  display:none; align-items:center; justify-content:center; z-index:70}
-.confirm-card{background:var(--card); border:1px solid var(--border);
-  border-radius:12px; padding:18px 20px; width:380px; max-width:90vw;
-  box-shadow:0 16px 50px rgba(0,0,0,.55)}
-.confirm-card b{font:600 14px "Segoe UI Semibold",sans-serif}
-.confirm-card p{color:var(--muted); font-size:13px; margin-top:8px; white-space:pre-wrap}
-.confirm-actions{display:flex; justify-content:flex-end; gap:8px; margin-top:16px}
-.btn-danger-solid{background:var(--err); color:#26090e}
-.btn-danger-solid:hover{background:#ff8595}
-
-/* ---------- login-with-zcode modal ---------- */
-#login-modal .confirm-card{width:440px}
-#lg-code{font:700 34px "Cascadia Mono",monospace; letter-spacing:.08em; text-align:center;
-  color:var(--accent-soft); background:var(--field); border:1px solid var(--border);
-  border-radius:10px; padding:14px; margin:12px 0; user-select:all; cursor:pointer}
-#lg-status{color:var(--muted); font-size:13px; text-align:center; min-height:20px}
-::-webkit-scrollbar{width:10px; height:10px}
-::-webkit-scrollbar-track{background:transparent}
-::-webkit-scrollbar-thumb{background:var(--elev); border-radius:6px; border:2px solid var(--bg)}
-::-webkit-scrollbar-thumb:hover{background:var(--border)}
-.cap-cell{min-width:250px; font-size:12px}
-.cap-entry + .cap-entry{margin-top:12px; padding-top:10px; border-top:1px solid var(--border)}
-.cap-entry b{display:block; color:var(--fg); overflow-wrap:anywhere}
-.reset-time{color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; line-height:1.6}
-.reset-time time{white-space:nowrap}
-.reset-left{display:block; color:var(--fg)}
-.reset-note{color:var(--muted); font-size:12px; margin:0 0 12px}
-.cap-message{color:var(--muted); overflow-wrap:anywhere; max-width:65ch; margin:4px 0 10px}
-#accounts-no-match td{text-align:center; padding:24px; color:var(--muted)}
-
-/* ---------- selects (custom dropdown) ---------- */
-select.sel{appearance:none; -webkit-appearance:none; cursor:pointer; padding-right:30px;
-  background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%239aa1b2' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-  background-repeat:no-repeat; background-position:right 10px center}
-select.sel:hover{border-color:var(--accent-dim)}
-select.sel:disabled{opacity:.55; cursor:not-allowed}
-select.sel option{background:var(--card); color:var(--fg)}
-
-/* ---------- dropdown menu (actions / Kebab) ---------- */
-.dd{position:relative; display:inline-block}
-.dd-btn{display:inline-flex; align-items:center; justify-content:center; gap:6px;
-  background:transparent; color:var(--muted); border:0; border-radius:7px;
-  width:30px; height:28px; cursor:pointer; font-size:15px; line-height:1}
-.dd-btn:hover, .dd.open .dd-btn{background:var(--elev); color:var(--fg)}
-.dd-menu{position:absolute; right:0; top:calc(100% + 5px); z-index:40; min-width:190px;
-  background:var(--card); border:1px solid var(--border); border-radius:10px;
-  padding:5px; box-shadow:0 12px 34px rgba(0,0,0,.5); display:none; text-align:left;
-  max-height:calc(100vh - 16px); overflow-y:auto}
-.dd.open .dd-menu{display:block}
-.dd-item{display:flex; align-items:center; gap:9px; width:100%; background:none; border:0;
-  color:var(--fg); font:13px "Segoe UI",sans-serif; padding:8px 10px; border-radius:7px;
-  cursor:pointer; white-space:nowrap}
-.dd-item:hover{background:var(--elev)}
-.dd-item .ic{width:16px; text-align:center; flex:none; opacity:.85}
-.dd-item.danger{color:var(--err)}
-.dd-item.danger:hover{background:rgba(255,107,122,.1)}
-.dd-sep{height:1px; background:var(--border); margin:5px 4px}
-
-/* ---------- themed select: replaces the OS dropdown list everywhere ---------- */
-.sel-dd{position:relative; display:inline-block; max-width:100%; vertical-align:middle}
-.sel-btn{display:flex; align-items:center; justify-content:space-between; gap:8px; width:100%;
-  background:var(--field); color:var(--fg); border:1px solid var(--border); border-radius:8px;
-  padding:8px 11px; font:13px "Segoe UI",sans-serif; cursor:pointer; text-align:left; min-height:32px}
-.sel-btn:hover{border-color:var(--accent-dim)}
-.sel-btn:focus-visible,.sel-dd.open .sel-btn{outline:none; border-color:var(--accent)}
-.sel-btn:disabled{opacity:.55; cursor:not-allowed}
-.sel-label{flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
-.sel-caret{flex:none; width:7px; height:7px; border-right:2px solid var(--muted); border-bottom:2px solid var(--muted);
-  transform:rotate(45deg) translateY(-2px); transition:transform .15s}
-.sel-dd.open .sel-caret{transform:rotate(-135deg) translate(-2px,-1px)}
-.sel-menu{min-width:100%; max-width:min(420px, calc(100vw - 16px)); padding:5px}
-.sel-menu .dd-item{align-items:flex-start; gap:8px; text-align:left}
-.sel-menu .dd-item .tick{width:14px; flex:none; color:var(--accent-soft); text-align:center}
-.sel-menu .dd-item .txt{display:block; min-width:0; flex:1; text-align:left}
-.sel-menu .dd-item small{display:block; color:var(--faint); font-size:11px; white-space:normal; margin-top:2px; line-height:1.35}
-.sel-menu .dd-item.on{color:var(--fg); background:rgba(139,124,247,.12)}
-.sel-menu .dd-item.active{background:var(--elev)}
-.sel-menu .dd-group{padding:7px 10px 3px; color:var(--faint); font:600 10.5px "Segoe UI Semibold",sans-serif;
-  text-transform:uppercase; letter-spacing:.06em}
-
-/* ---------- settings page ---------- */
-.set-top{display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:14px}
-.set-top input[type=search]{max-width:280px}
-.set-wrap{display:grid; grid-template-columns:190px minmax(0,1fr); gap:22px; align-items:start}
-.set-toc{position:sticky; top:0; display:flex; flex-direction:column; gap:2px}
-.set-toc button{background:none; border:0; color:var(--muted); font:13px "Segoe UI",sans-serif; text-align:left;
-  padding:7px 11px; border-radius:8px; cursor:pointer}
-.set-toc button:hover{background:var(--elev); color:var(--fg)}
-.set-card{margin-bottom:16px; scroll-margin-top:8px}
-.set-card h2{margin-bottom:2px}
-.set-desc{color:var(--muted); font-size:12.5px; margin:0 0 6px}
-.set-row{display:grid; grid-template-columns:minmax(0,1fr) minmax(210px,330px); gap:4px 26px; padding:13px 0;
-  border-top:1px solid var(--border); align-items:center}
-.set-row:first-of-type{border-top:0}
-.set-meta label{display:block; font-weight:600; font-size:13px; color:var(--fg); margin:0 0 2px}
-.set-meta .help{color:var(--muted); font-size:12px; line-height:1.45; margin:0}
-.set-ctl{display:flex; align-items:center; gap:9px; justify-content:flex-end; min-width:0}
-.set-ctl .sel-dd{width:100%}
-.set-ctl input[type=number]{width:130px; text-align:right}
-.set-ctl input[type=text]{width:100%}
-.set-ctl .unit{color:var(--faint); font-size:12px; min-width:18px}
-.set-note{grid-column:1 / -1; color:var(--faint); font-size:11.5px; margin:-2px 0 0; text-align:right}
-.set-row.changed .set-meta label::after{content:"  edited"; color:var(--accent-soft); font:600 10.5px "Segoe UI",sans-serif;
-  text-transform:uppercase; letter-spacing:.05em; margin-left:6px}
-.set-row.hidden,.set-card.hidden{display:none}
-.set-adv-tag{display:inline-block; margin-left:6px; padding:0 6px; border-radius:99px; background:var(--elev);
-  color:var(--faint); font:600 10px "Segoe UI",sans-serif; text-transform:uppercase; letter-spacing:.05em}
-.switch{position:relative; width:42px; height:24px; flex:none; display:inline-block}
-.switch input{opacity:0; width:0; height:0; position:absolute}
-.switch .slider{position:absolute; inset:0; background:var(--elev); border:1px solid var(--border); border-radius:99px;
-  cursor:pointer; transition:background .15s,border-color .15s}
-.switch .slider::before{content:""; position:absolute; width:16px; height:16px; left:3px; top:3px; border-radius:50%;
-  background:var(--muted); transition:transform .15s,background .15s}
-.switch input:checked + .slider{background:var(--accent-dim); border-color:var(--accent)}
-.switch input:checked + .slider::before{transform:translateX(18px); background:var(--accent-soft)}
-.switch input:focus-visible + .slider{box-shadow:0 0 0 2px var(--accent)}
-.sw-state{min-width:26px; text-align:left; color:var(--muted); font-size:12.5px}
-.set-bar{position:sticky; bottom:0; display:flex; align-items:center; gap:12px; flex-wrap:wrap;
-  margin-top:14px; padding:11px 16px; background:var(--card); border:1px solid var(--border); border-radius:var(--r);
-  box-shadow:0 -8px 24px rgba(0,0,0,.35); z-index:5}
-.set-bar .dirty{color:var(--accent-soft); font-weight:600; font-size:13px}
-.set-empty{padding:26px; text-align:center; color:var(--muted)}
-@media (max-width:860px){
-  .set-wrap{grid-template-columns:1fr}
-  .set-toc{position:static; flex-direction:row; flex-wrap:wrap}
-  .set-row{grid-template-columns:1fr}
-  .set-ctl{justify-content:flex-start}
-  .set-note{text-align:left}
-}
-
-/* ---------- misc polish ---------- */
-.lbl{color:var(--muted); font-size:12px; display:inline-block; margin-bottom:4px}
-select option{background:var(--card); color:var(--fg)}
-input[type=number]{min-width:0}
-.px-kpi{background:var(--card); border:1px solid var(--border); border-radius:var(--r);
-  padding:6px 12px; display:inline-flex; flex-direction:column; min-width:74px}
-.px-kpi .v{font:600 17px "Segoe UI Semibold",sans-serif}
-.px-kpi .k{color:var(--muted); font-size:11px}
-.progress{height:4px; background:var(--elev); border-radius:99px; overflow:hidden; flex:1; min-width:120px}
-.progress > div{height:100%; background:var(--accent); border-radius:99px; transition:width .4s ease}
-</style>
+<title>AutoZcoder Studio</title>
+<link rel="stylesheet" href="/dash/studio.css">
 </head>
 <body>
 
 <!-- login (only when admin key is needed and not yet entered) -->
 <div id="login" style="display:none">
   <div class="card">
-    <h2>Zcode Gateway</h2>
+    <h2>AutoZcoder</h2>
     <p style="color:var(--muted); font-size:13px; margin-bottom:14px">
       Enter the admin key to manage this gateway.</p>
     <div class="field">
@@ -368,50 +23,31 @@ input[type=number]{min-width:0}
   </div>
 </div>
 
-<aside id="side" style="display:none">
-  <div id="brand">
-    <span class="mark"></span>
-    <div><b>Zcode Gateway</b>
-      <a href="https://t.me/B3hnamR" target="_blank" rel="noopener"><small>@B3hnamR · t.me/B3hnamR</small></a>
-    </div>
-  </div>
-  <button class="nav-btn" data-tab="accounts" onclick="App.tab('accounts')"><span class="ico">◉</span>Accounts</button>
-  <button class="nav-btn" data-tab="generator" onclick="App.tab('generator')"><span class="ico">⚡</span>Generator</button>
-  <button class="nav-btn" data-tab="proxy" onclick="App.tab('proxy')"><span class="ico">⇄</span>Proxy tools</button>
-  <button class="nav-btn" data-tab="models" onclick="App.tab('models')"><span class="ico">◇</span>Models</button>
-  <button class="nav-btn" data-tab="server" onclick="App.tab('server')"><span class="ico">▣</span>Server</button>
-  <button class="nav-btn" data-tab="settings" onclick="App.tab('settings')"><span class="ico">⚙</span>Settings</button>
-  <button class="nav-btn" data-tab="stats" onclick="App.tab('stats')"><span class="ico">∑</span>Stats</button>
-  <button class="nav-btn" data-tab="usage" onclick="App.tab('usage')"><span class="ico">▤</span>Usage</button>
-  <button class="nav-btn" data-tab="analytics" onclick="App.tab('analytics')"><span class="ico">▲</span>Analytics</button>
-  <button class="nav-btn" data-tab="logs" onclick="App.tab('logs')"><span class="ico">≡</span>Logs</button>
-  <button class="nav-btn" data-tab="guide" onclick="App.tab('guide')"><span class="ico">?</span>Guide</button>
-  <div class="spacer"></div>
-  <div class="foot" id="foot-ver"></div>
+<aside id="side" style="display:none" aria-label="Main navigation">
+  <div id="brand"><span class="mark"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h6v6H4z M14 5h6v6h-6z M4 15h6v4H4z M14 15h6v4h-6z"/></svg></span><div class="brand-copy"><b>AutoZcoder</b><small>Local gateway studio</small></div></div>
+  <nav aria-label="Workspace">
+    <button class="nav-btn" data-tab="overview" onclick="App.tab('overview')"><span class="ico"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z"/></svg></span>Overview</button><button class="nav-btn" data-tab="accounts" onclick="App.tab('accounts')"><span class="ico"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M22 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>Accounts</button>
+    <button class="nav-btn" data-tab="generator" onclick="App.tab('generator')"><span class="ico"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h8v5H8z M4 15h5v5H4z M15 15h5v5h-5z M12 9v3 M6 15v-3h12v3"/></svg></span>Generator</button><button class="nav-btn" data-tab="proxy" onclick="App.tab('proxy')"><span class="ico"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16l-4-4 M20 17H4l4 4"/></svg></span>Proxy tools</button>
+    <button class="nav-btn" data-tab="models" onclick="App.tab('models')"><span class="ico"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5 9-5 M3 12l9 5 9-5 M3 16l9 5 9-5"/></svg></span>Models</button>
+    <div class="nav-group">Traffic</div>
+    <button class="nav-btn" data-tab="usage" onclick="App.tab('usage')"><span class="ico"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3h16v18H4z M8 7h8 M8 11h8 M8 15h5"/></svg></span>Usage history</button><button class="nav-btn" data-tab="analytics" onclick="App.tab('analytics')"><span class="ico"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17l6-6 4 3 8-10 M16 4h5v5"/></svg></span>Analytics</button><button class="nav-btn" data-tab="stats" onclick="App.tab('stats')"><span class="ico"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h16 M7 16V9 M12 16V4 M17 16v-5"/></svg></span>Statistics</button><button class="nav-btn" data-tab="logs" onclick="App.tab('logs')"><span class="ico"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16 M4 10h16 M4 15h10 M4 20h10"/></svg></span>Logs</button>
+    <div class="nav-group">Manage</div>
+    <button class="nav-btn" data-tab="server" onclick="App.tab('server')"><span class="ico"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3h16v7H4z M4 14h16v7H4z M8 6h.01 M8 17h.01"/></svg></span>Connection</button><button class="nav-btn" data-tab="settings" onclick="App.tab('settings')"><span class="ico"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16 M4 17h16 M8 4v6 M16 14v6"/></svg></span>Settings</button><button class="nav-btn" data-tab="guide" onclick="App.tab('guide')"><span class="ico"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h12a2 2 0 0 1 2 2v16H7a2 2 0 0 1-2-2V3 M5 17h14 M9 7h6 M9 11h6"/></svg></span>Help & setup</button>
+  </nav>
+  <div class="spacer"></div><div class="foot"><span id="foot-ver"></span><br><a href="https://github.com/B3hnamR/AutoZcoder" target="_blank" rel="noopener">Based on B3hnamR/AutoZcoder</a></div>
 </aside>
-
 <div id="main" style="display:none">
-  <div id="top">
-    <h1 id="tab-title">Accounts</h1>
-    <span class="chip"><span class="dot off" id="dot-server"></span><span id="chip-server">gateway</span></span>
-    <span class="chip"><span class="dot off" id="dot-zcode"></span><span id="chip-zcode">Zcode: …</span></span>
-    <span class="chip" id="chip-ready"></span>
-    <button class="btn btn-quiet btn-sm" id="btn-notify" title="notifications"
-      style="display:none; position:relative" onclick="App.toggleNotify()">
-      🔔
-      <span id="notify-dot" style="position:absolute; top:2px; right:2px; width:8px; height:8px;
-        border-radius:50%; background:var(--err,#e5484d); box-shadow:0 0 6px var(--err,#e5484d); display:none"></span>
-    </button>
-    <button class="btn btn-quiet btn-sm" id="btn-update" title="updates"
-      style="display:none; position:relative" onclick="App.showUpdate()">🔔
-      <span id="update-dot" style="position:absolute; top:2px; right:2px; width:8px; height:8px;
-        border-radius:50%; background:var(--accent); box-shadow:0 0 6px var(--accent)"></span>
-    </button>
-    <button class="btn btn-quiet btn-sm" id="btn-toggle" onclick="App.toggleServer()">…</button>
-  </div>
-  <div id="view"></div>
+  <header id="top"><button class="btn btn-quiet" id="nav-toggle" aria-label="Open navigation" aria-expanded="false" onclick="App.toggleNavigation()"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16 M4 12h16 M4 18h16"/></svg></button>
+    <div class="page-heading"><h1 id="tab-title">Overview</h1><p id="tab-description">Your local gateway, at a glance.</p></div>
+    <button class="btn btn-quiet btn-sm" id="btn-commands" onclick="App.openCommands(this)" aria-label="Search commands (Control or Command K)">Search commands <kbd>Ctrl+K</kbd></button>
+    <button class="btn btn-quiet btn-sm" onclick="App.resetUIPreferences()" title="Reset only this profile's local UI preferences">Reset UI preferences</button>
+    <button class="btn btn-quiet" id="btn-notify" title="Notifications" aria-label="Notifications" style="display:none;position:relative" onclick="App.toggleNotify()"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9 M10 21h4"/></svg><span id="notify-dot" style="position:absolute;top:4px;right:4px;width:7px;height:7px;border-radius:50%;background:var(--err);display:none"></span></button>
+    <button class="btn btn-quiet btn-sm" id="btn-update" style="display:none" onclick="App.showUpdate()">Update available<span id="update-dot"></span></button>
+  </header>
+  <div id="service-strip"><span class="service-identity"><span class="dot off" id="dot-server"></span><span id="chip-server">Connecting</span></span><span class="service-identity"><span class="dot off" id="dot-zcode"></span><span id="chip-zcode">ZCode status</span></span><span class="service-identity" id="chip-ready"></span><span class="service-endpoint" id="service-endpoint">Local API</span><button class="btn btn-quiet btn-sm" id="btn-toggle" onclick="App.toggleServer()">Service controls</button></div>
+  <main id="view" aria-label="Workspace content"></main>
 </div>
-
+<div id="connection-banner" class="connection-banner" role="status" aria-live="polite"><span id="connection-message">Connecting to the gateway…</span><button class="btn btn-ghost btn-sm" onclick="App.reconnect()">Reconnect</button></div>
 <div id="toast"></div>
 
 <!-- in-app confirm dialog -->
@@ -495,33 +131,80 @@ input[type=number]{min-width:0}
   <div id="upd-progress" style="color:var(--faint); font-size:12px; margin-top:8px"></div>
 </div>
 
+<!-- Account details remain mounted independently from the polled table. -->
+<div id="account-drawer-overlay" class="account-drawer-overlay" hidden>
+  <section id="account-drawer" class="account-drawer" role="dialog" aria-modal="true" aria-labelledby="account-drawer-title" tabindex="-1">
+    <div class="drawer-header"><h2 id="account-drawer-title">Account details</h2><button class="btn btn-quiet" onclick="App.closeAccountDetails()" aria-label="Close account details">Close</button></div>
+    <div id="account-drawer-body" class="drawer-body"></div>
+    <div class="drawer-actions" id="account-drawer-actions">
+      <button class="btn btn-ghost btn-sm" data-drawer-action="enable">Enable</button>
+      <button class="btn btn-ghost btn-sm" data-drawer-action="balance">Check quotas</button>
+      <button class="btn btn-ghost btn-sm" data-drawer-action="refresh">Reload token</button>
+      <button class="btn btn-danger btn-sm" data-drawer-action="remove">Remove account</button>
+    </div>
+  </section>
+</div>
+<!-- AUTOZCODER_BOOTSTRAP -->
+<script src="/dash/connection.js"></script>
+<script src="/dash/overview.js"></script>
+<script src="/dash/preferences.js"></script>
+<script src="/dash/usability.js"></script>
 <script>
 "use strict";
 const App = (() => {
   /* ------------ state ------------ */
-  let key = sessionStorage.getItem("gw-admin-key") || "";
-  let curTab = "accounts";
-  let timer = null;
-  let serverUp = true;
+  let trusted = null;
+  try {
+    const node = document.getElementById("autozcoder-bootstrap");
+    if (node) trusted = GatewayConnection.parseBootstrap(node.outerHTML);
+  } catch (_) {}
+  // Trusted per-instance injection wins over stale storage, including an empty key.
+  let key = trusted ? trusted.key : sessionStorage.getItem("gw-admin-key") || "";
+  let curTab = sessionStorage.getItem("gw-selected-tab") || "overview";
+  let serverUp = false;
+  let booted = false, bootFlight = null, refreshFlight = null;
+  let pendingTab = false, disconnectedEdits = false;
   const cache = {};
+  const connection = new GatewayConnection.Supervisor({
+    key, instance: trusted && trusted.instance,
+    onCredentials(value) { key = value; sessionStorage.setItem("gw-admin-key", key); },
+    onState: connectionState,
+    onOnline: () => { hideLogin(); return boot(); }
+  });
 
   /* ------------ http ------------ */
-  async function api(path, opts = {}) {
-    opts.headers = Object.assign({"Authorization": "Bearer " + key,
-      "Content-Type": "application/json"}, opts.headers || {});
-    if (opts.body && typeof opts.body !== "string")
-      opts.body = JSON.stringify(opts.body);
-    let r;
-    try { r = await fetch(path, opts); }
-    catch (e) { serverUp = false; paintChips(); throw new Error("gateway unreachable"); }
-    serverUp = true;
-    if (r.status === 401 || r.status === 403) { showLogin(); throw new Error("bad admin key"); }
-    if (!r.ok) {
-      let detail = r.statusText;
-      try { detail = (await r.json()).detail || detail; } catch (_) {}
-      throw new Error(detail);
+  function api(path, opts = {}) { return connection.request(path, opts); }
+  function connectionState(state, detail) {
+    serverUp = state === "online" || state === "degraded";
+    if (!serverUp) {
+      disconnectedEdits = disconnectedEdits || !!document.querySelector("#view input:focus, #view textarea:focus, #view .set-row.changed, #view [data-gw-dirty]");
+      clearTimeout(genSaveTimer); clearTimeout(mailSaveTimer);
+      connection.unpoll("setup"); connection.unpoll("login"); connection.unpoll("relay-deploy");
+      relayRevision++; pxAutoRevision++; pxActionRevision++;
+      pxAutoLoaded = false; // runtime-only values must be read from the new/reconnected instance
+      relayLoadState = relayData ? "stale" : "error";
+      if (relayOperationId) relayJobState = "checking";
+      renderRelaysUI(); renderRelayJob(); proxyControls(); pxAutoPaint();
     }
-    return r.json();
+    const banner = document.getElementById("connection-banner");
+    const text = document.getElementById("connection-message");
+    const messages = {
+      offline: "Gateway offline. Your tab and unsaved edits are retained; account actions will not be replayed.",
+      stopped: "Service stopped. API clients are disconnected. Use the native Start service control, or run autozcoder start.",
+      unauthorized: "Enter the current admin key to reconnect. Your unsaved dashboard remains in memory.",
+      foreign: "Another listener owns this port. No credentials or actions will be sent.",
+      degraded: "Gateway is connected but degraded. No automatic service restart will be attempted."
+    };
+    if (banner) banner.style.display = state === "online" ? "none" : "flex";
+    if (text) text.textContent = messages[state] || detail || "Connecting…";
+    if (state === "unauthorized") showLogin();
+    if (state === "foreign") {
+      preferences.bind(null); preferenceScope = null;
+      clearEphemeralViews();
+    }
+    updateAccountDrawer();
+    if (palette) palette.update();
+    paintConnectionChips();
   }
 
   /* ------------ ui helpers ------------ */
@@ -598,6 +281,244 @@ const App = (() => {
     } catch (_) { return false; }
   }
 
+  /* ------------ local usability state (never credentials or search storage) ------------ */
+  const preferences = StudioPreferences.createStore({
+    origin: window.location.origin,
+    storage: {
+      getItem(k) { return window.localStorage.getItem(k); },
+      setItem(k, value) { window.localStorage.setItem(k, value); },
+      removeItem(k) { window.localStorage.removeItem(k); }
+    },
+    onChange(value, reason) {
+      cache.mdlSort = value.modelSort;
+      if (reason === "storage" || reason === "reset") {
+        // Search and focus belong to this tab, not another tab's preference event.
+        applyAccountFilters();
+        if (curTab === "models" && cache.models) renderModelsData($("#view"), cache.models);
+        if (palette) palette.update();
+      }
+    }
+  });
+  let preferenceScope = null, drawer = null, palette = null;
+  let selectedAccountId = null, selectedAccountScope = null, selectedAccountData = null;
+  window.addEventListener("storage", event => {
+    try {
+      if (event.storageArea && event.storageArea !== window.localStorage) return;
+      preferences.handleStorage({key:event.key,newValue:event.newValue,url:event.url});
+    } catch (_) { /* storage can be disabled by browser policy */ }
+  });
+  function verifiedScope() {
+    const instance = connection.instance;
+    return GatewayConnection.validInstance(instance) && !instance.stopping
+      ? JSON.stringify([instance.config_id, instance.mode]) : null;
+  }
+  function bindUIPreferences() {
+    const scope = verifiedScope();
+    if (!scope || !serverUp) return;
+    if (scope !== preferenceScope) {
+      if (preferenceScope !== null) clearEphemeralViews();
+      preferences.bind(connection.instance);
+      preferenceScope = scope;
+      curTab = preferences.get().selectedTab || curTab;
+    } else preferences.bind(connection.instance); // same boot-independent profile is a no-op
+  }
+  function clearEphemeralViews() {
+    if (palette) palette.close();
+    closeAccountDetails();
+    delete cache.accounts; delete cache.pool; delete cache.models; delete cache.endpoint;
+    cache.acctQ = ""; cache.mdlQ = "";
+    if (curTab === "accounts" || curTab === "models") $("#view").replaceChildren();
+  }
+  function higherModalOpen(includeNotifications = true) {
+    const ids = ["confirm-modal", "login", "login-modal", "setup-modal", "relay-modal"];
+    if (includeNotifications) ids.push("notify-panel");
+    return ids.some(id => {
+      const el = document.getElementById(id);
+      return el && !el.hidden && getComputedStyle(el).display !== "none";
+    });
+  }
+  function initUsability() {
+    if (!drawer) {
+      drawer = StudioUsability.createOverlay({element:$("#account-drawer-overlay"), document,
+        fallbackFocus:() => $("#btn-commands"), isBlocked:higherModalOpen,
+        onClose:() => { selectedAccountId = null; selectedAccountScope = null; selectedAccountData = null; }});
+      $("#account-drawer-actions").addEventListener("click", event => {
+        const button = event.target.closest("[data-drawer-action]");
+        if (button && !button.disabled) drawerAction(button.dataset.drawerAction);
+      });
+    }
+    if (!palette) palette = StudioUsability.createPalette({document, commands:paletteCommands,
+      fallbackFocus:() => $("#btn-commands"), isBlocked:() => higherModalOpen() || !!(drawer && drawer.isOpen())});
+  }
+  function focusCurrentSearch() {
+    const search = document.querySelector("#view input[type='search'], #view #mdl-q, #view #log-q");
+    if (search) search.focus();
+  }
+  function paletteCommands() {
+    const commands = Object.keys(PAGE_INFO).map(name => ({id:"nav-" + name,
+      label:"Go to " + PAGE_INFO[name][0], description:PAGE_INFO[name][1], keywords:"navigate page",
+      run:() => tab(name, null, {localOnly:true})}));
+    commands.push({id:"focus-search", label:"Focus current search", description:"Search this page locally",
+      keywords:"filter find", disabled:!document.querySelector("#view input[type='search'], #view #mdl-q, #view #log-q"), run:focusCurrentSearch},
+      {id:"show-favorites", label:"Show model favorites", description:"Uses the loaded catalog; does not fetch models",
+        keywords:"pinned star", run:() => tab("models", {favoritesOnly:true}, {localOnly:true})},
+      {id:"copy-endpoint", label:"Copy local API endpoint", description:cache.endpoint || "Endpoint not loaded",
+        keywords:"base url connection", disabled:!cache.endpoint, run:() => { if (cache.endpoint) copy(cache.endpoint); }},
+      {id:"copy-model-ids", label:"Copy loaded model IDs", description:cache.models ? "From the last accepted catalog snapshot" : "Models have not been loaded",
+        keywords:"catalog list", disabled:!cache.models?.models?.length,
+        run:() => { if (cache.models) copy(cache.models.models.map(m => m.model).join("\n")); }});
+    for (const model of (cache.models?.models || []).slice(0,100)) {
+      commands.push({id:"copy-model-" + model.model,label:"Copy model ID: " + model.model,
+        description:"Loaded model · " + (model.overall || "Unknown status"),keywords:"model catalog copy",
+        run:() => copyModel(model.model)});
+    }
+    return commands;
+  }
+  function openCommands(opener) {
+    if (higherModalOpen() || (drawer && drawer.isOpen())) return;
+    initUsability(); closeDropdowns(); palette.open(opener || document.activeElement);
+  }
+  function setAccountFilter(filter) { preferences.update({accountFilter:filter}); applyAccountFilters(); }
+  function setModelFilter(filter) { preferences.update({modelFilter:filter}); applyModelFilters(); }
+  function toggleFavoritesOnly() { preferences.update({favoritesOnly:!preferences.get().favoritesOnly}); applyModelFilters(); }
+  function clearAccountFilters() {
+    cache.acctQ = ""; const q = $("#acct-q"); if (q) q.value = "";
+    preferences.update({accountFilter:"all"}); applyAccountFilters();
+  }
+  function clearModelFilters() {
+    cache.mdlQ = ""; const q = $("#mdl-q"); if (q) q.value = "";
+    preferences.update({modelFilter:"all", favoritesOnly:false}); applyModelFilters();
+  }
+  function resetUIPreferences() {
+    preferences.reset();
+    toast("UI preferences reset for this profile; credentials and server settings unchanged", "ok");
+  }
+  function filterToolbar(kind, counts, current) {
+    const labels = kind === "account" ? {all:"All",ready:"Ready",cooling:"Cooling",attention:"Needs attention"}
+      : {all:"All",available:"Available",limited:"Limited",unavailable:"Unavailable"};
+    return `<div class="filter-bar" role="group" aria-label="${kind === "account" ? "Account status" : "Model availability"} filters">`
+      + Object.entries(labels).map(([key,label]) => `<button class="filter-chip" data-filter-kind="${kind}" data-filter="${key}" aria-pressed="${current === key}">${label} <span class="filter-count">${counts[key]}</span></button>`).join("") + `</div>`;
+  }
+  function bindFilterButtons(v) {
+    v.querySelectorAll("[data-filter-kind]").forEach(button => button.addEventListener("click", () =>
+      button.dataset.filterKind === "account" ? setAccountFilter(button.dataset.filter) : setModelFilter(button.dataset.filter)));
+  }
+  function preserveView(v) {
+    const active = document.activeElement;
+    const focus = active && v.contains(active) ? {id:active.id, act:active.dataset?.act, dataId:active.dataset?.id,
+      filter:active.dataset?.filter, kind:active.dataset?.filterKind,
+      focusKey:active.dataset?.focusKey,
+      start:active.selectionStart, end:active.selectionEnd, value:active.value} : null;
+    const scroll = v.scrollTop, x = window.scrollX, y = window.scrollY;
+    const tables = [...v.querySelectorAll(".tbl-wrap")].map(el => [el.scrollTop, el.scrollLeft]);
+    return () => {
+      v.scrollTop = scroll;
+      [...v.querySelectorAll(".tbl-wrap")].forEach((el, i) => { if (tables[i]) [el.scrollTop,el.scrollLeft] = tables[i]; });
+      if (focus) {
+        const target = [...v.querySelectorAll("button,input,summary,a")].find(el =>
+          focus.id ? el.id === focus.id : focus.act ? el.dataset.act === focus.act && el.dataset.id === focus.dataId
+            : focus.filter ? el.dataset.filter === focus.filter && el.dataset.filterKind === focus.kind
+            : focus.focusKey ? el.dataset.focusKey === focus.focusKey : false);
+        if (target) {
+          target.focus({preventScroll:true});
+          if (typeof focus.start === "number" && target.setSelectionRange) {
+            try { target.setSelectionRange(focus.start, focus.end); } catch (_) {}
+          }
+        }
+      }
+      window.scrollTo(x, y);
+    };
+  }
+  // Account panel intentionally projects only curated public fields. Raw notes,
+  // fingerprints, error messages and token payloads never enter this markup.
+  function projectAccount(account) {
+    const text = value => typeof value === "string" ? value.slice(0,256) : "";
+    const finite = value => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+    const epoch = value => finite(value) !== null && value < 8.64e12 ? value : null;
+    const projected = {id:text(account.id), email:text(account.email), state:["ready","cooling","dead","exhausted"].includes(account.state) ? account.state : "unknown",
+      has_plan:typeof account.has_plan === "boolean" ? account.has_plan : null,
+      paid_exhausted:account.paid_exhausted === true, needs_refresh:account.needs_refresh === true,
+      expires_at:epoch(account.expires_at), in_flight:finite(account.in_flight), plans:[], quotas:{}, model_caps:{}, capped_models:[], errors:[]};
+    projected.plans = (Array.isArray(account.plans) ? account.plans : []).slice(0,30).map(p => ({name:text(p.name),plan_id:text(p.plan_id),status:["active","expired","pending","cancelled","inactive"].includes(p.status) ? p.status : "unknown",ends_at:epoch(p.ends_at)}));
+    for (const [name, q] of Object.entries(account.quotas || {}).slice(0,80)) {
+      if (q && finite(q.remaining) !== null && finite(q.total) !== null)
+        projected.quotas[text(name)] = {remaining:q.remaining,total:q.total,resets_at:epoch(q.resets_at)};
+    }
+    for (const [name, info] of Object.entries(account.model_caps || {}).slice(0,80)) {
+      if (!info || typeof info !== "object") continue;
+      projected.model_caps[text(name)] = {release_in_s:finite(info.release_in_s),
+        release_at:typeof info.release_at === "string" && Number.isFinite(Date.parse(info.release_at)) ? text(info.release_at) : ""};
+    }
+    projected.capped_models = (Array.isArray(account.capped_models) ? account.capped_models : []).slice(0,80).map(text).filter(Boolean);
+    const errorNames = {auth_error:"Authentication failed",unauthorized:"Authentication failed",invalid_token:"Token is no longer valid",token_expired:"Token expired",rate_limit:"Rate limit reached",rate_limited:"Rate limit reached",quota_exceeded:"Quota exhausted",insufficient_quota:"Quota exhausted",no_credit:"Credit exhausted",no_entitlement:"Plan access unavailable",model_capped:"Model quota cap",server_error:"Upstream service error",timeout:"Request timed out"};
+    for (const error of (Array.isArray(account.error_history) ? account.error_history : []).slice(-12)) {
+      const label = Object.prototype.hasOwnProperty.call(errorNames,error?.code) ? errorNames[error.code] : "Request failed (unrecognized code)";
+      projected.errors.push({label,ago_s:finite(error?.ago_s)});
+    }
+    return projected;
+  }
+  function openAccountDetails(id, opener) {
+    if (higherModalOpen() || !preferenceScope || preferenceScope !== verifiedScope()) return;
+    const account = cache.accounts?.find(a => a.id === id);
+    if (!account) return;
+    initUsability(); if (palette) palette.close(); closeDropdowns();
+    selectedAccountId = id; selectedAccountScope = preferenceScope;
+    selectedAccountData = projectAccount(account);
+    updateAccountDrawer(); drawer.open(opener || document.activeElement);
+  }
+  function closeAccountDetails() {
+    if (drawer) drawer.close();
+    selectedAccountId = null; selectedAccountScope = null; selectedAccountData = null;
+  }
+  function drawerAccountAvailable() {
+    return !!selectedAccountId && serverUp && selectedAccountScope === preferenceScope && preferenceScope === verifiedScope()
+      && cache.accounts?.some(a => a.id === selectedAccountId);
+  }
+  function updateAccountDrawer() {
+    if (!selectedAccountId) return;
+    const current = cache.accounts?.find(a => a.id === selectedAccountId);
+    if (current && selectedAccountScope === preferenceScope) selectedAccountData = projectAccount(current);
+    const a = selectedAccountData;
+    if (!a) return;
+    const body = $("#account-drawer-body"), scroll = body.scrollTop;
+    const removed = serverUp && !current;
+    const meaning = {ready:"Ready to serve requests, subject to each model's quota and access.",cooling:"Temporarily cooling down. Availability returns after its rate-limit window.",dead:"Authentication is unavailable. A new login may be required.",exhausted:"Account credit is exhausted.",unknown:"Account status is not known."}[a.state];
+    const statusText = removed ? "This account was removed from the pool. Actions are disabled; no other account is selected."
+      : !serverUp ? "Stale snapshot — gateway disconnected. Actions are disabled."
+      : "Latest accepted account snapshot. Opening details does not refresh quotas or tokens.";
+    const selection = window.getSelection ? window.getSelection() : null;
+    const readingSelection = selection && !selection.isCollapsed && selection.anchorNode
+      && body.contains(selection.anchorNode);
+    const content = `<p class="drawer-status-note" role="status">${statusText}</p>
+      <section class="drawer-section"><h3>${esc(a.email || a.id)}</h3><dl><dt>Account ID</dt><dd class="mono">${esc(a.id)}</dd><dt>Status</dt><dd>${badge(a.state)}</dd></dl><p>${meaning}</p>${a.paid_exhausted ? "<p>Paid-model credit exhausted.</p>" : ""}</section>
+      <section class="drawer-section"><h3>Plan and quota</h3>${planCell(a)}<div class="quota">${quotaCell(a.quotas)}</div><p>Reset times use ${esc(localZone)}.</p></section>
+      <section class="drawer-section"><h3>Model caps</h3>${capCell(a)}</section>
+      <section class="drawer-section"><h3>Token validity</h3><p>${fmtLeft(a.expires_at || 0)}${a.needs_refresh ? " · Refresh is due" : ""}</p><p>Reload token explicitly requests a token refresh; it is not performed when you open this panel.</p></section>
+      <section class="drawer-section"><h3>Recent request errors</h3>${a.errors.length ? a.errors.map(e => `<p>${esc(e.label)}${e.ago_s === null ? "" : " · " + esc(fmtSecs(Math.round(e.ago_s))) + " ago"}</p>`).join("") : "<p>No recent errors recorded.</p>"}<p>Historical errors do not imply this account is currently unhealthy.</p></section>`;
+    // Keep copied/selected text stable during polling. The status and action
+    // availability still update immediately, including removed/offline states.
+    if (body._snapshotAccountId !== selectedAccountId || (!readingSelection && body._snapshotMarkup !== content)) {
+      body.innerHTML = content;
+      body._snapshotMarkup = content;
+      body._snapshotAccountId = selectedAccountId;
+    } else {
+      const note = body.querySelector && body.querySelector(".drawer-status-note");
+      if (note && note.textContent !== statusText) note.textContent = statusText;
+    }
+    body.scrollTop = scroll;
+    $("#account-drawer-actions").querySelectorAll("button").forEach(button => { button.disabled = !drawerAccountAvailable(); });
+  }
+  async function drawerAction(action) {
+    if (!drawerAccountAvailable() || higherModalOpen()) return;
+    const id = selectedAccountId, scope = selectedAccountScope;
+    if (action === "remove") { await acctRemove(id, scope); return; }
+    const descriptions = {enable:"Enable this account for routing again.", balance:"Make an upstream request to check this account's model quotas.",refresh:"Request a fresh token for this account."};
+    if (!descriptions[action]) return;
+    if (!(await confirmDlg(action === "balance" ? "Check account quotas?" : action === "refresh" ? "Reload account token?" : "Enable account?", descriptions[action], "Continue"))) return;
+    if (selectedAccountId !== id || selectedAccountScope !== scope || !drawerAccountAvailable()) return;
+    await acct(action, id);
+  }
+
   /* ------------ login ------------ */
   function showLogin(){
     $("#login").style.display = "block";
@@ -609,13 +530,12 @@ const App = (() => {
     $("#side").style.display = "flex";
     $("#main").style.display = "flex";
   }
-  async function login(){
+  function login(){
     key = $("#login-key").value.trim();
-    try { await api("/admin/dash/server"); }
-    catch (e) { toast(e.message, "err"); return; }
     sessionStorage.setItem("gw-admin-key", key);
-    hideLogin(); boot();
+    connection.retry(key);
   }
+  function reconnect(){ connection.retry(); }
 
   /* ------------ confirm dialog (replaces native confirm()) ------------ */
   function confirmDlg(title, body, okLabel = "OK", danger = false){
@@ -632,22 +552,31 @@ const App = (() => {
       m.setAttribute("aria-labelledby", "cf-title");
       const cancel = $("#cf-cancel");
       const prevFocus = document.activeElement;
-      ok.focus();
+      const previousKeyHandler = document.onkeydown;
+      let settled = false;
+      (danger ? cancel : ok).focus();
       const done = v => {
+        if (settled) return;
+        settled = true;
         m.style.display = "none";
         ok.onclick = null; cancel.onclick = null;
-        m.onclick = null; document.onkeydown = null;
-        if (prevFocus && prevFocus.focus) prevFocus.focus();
+        m.onclick = null; document.onkeydown = previousKeyHandler;
+        const target = prevFocus && prevFocus.isConnected && !prevFocus.disabled
+          ? prevFocus : $("#btn-commands");
+        if (target && target.focus) target.focus();
         resolve(v);
       };
       ok.onclick = () => done(true);
       cancel.onclick = () => done(false);
       m.onclick = e => { if (e.target === m) done(false); };
       document.onkeydown = e => {
+        if (e.isComposing || e.keyCode === 229) return;
+        if (e.key === "Escape" || e.key === "Enter") { e.preventDefault(); e.stopImmediatePropagation(); }
+        if (e.repeat) return; // Holding Enter must not accept a newly opened dialog.
         if (e.key === "Escape") done(false);
-        // Enter confirms only when focus is inside the dialog — a stray
-        // global Enter must never trigger a destructive action
-        if (e.key === "Enter" && m.contains(document.activeElement)) done(true);
+        // Activate the focused button, never a generic Enter-to-confirm shortcut.
+        if (e.key === "Enter" && document.activeElement === cancel) done(false);
+        else if (e.key === "Enter" && document.activeElement === ok) done(true);
         if (e.key === "Tab") {
           const focusables = [ok, cancel];
           const idx = focusables.indexOf(document.activeElement);
@@ -675,7 +604,7 @@ const App = (() => {
   }
   function setupClose(){
     $("#setup-modal").style.display = "none";
-    if (suTimer) { clearInterval(suTimer); suTimer = null; }
+    if (suTimer) { connection.unpoll("setup"); suTimer = null; }
   }
   async function setupRefresh(){
     const stepsEl = $("#su-steps");
@@ -701,7 +630,7 @@ const App = (() => {
       }
       if (st.state === "done") {
         errEl.style.display = "none";
-        if (suTimer) { clearInterval(suTimer); suTimer = null; }
+        if (suTimer) { connection.unpoll("setup"); suTimer = null; }
         if (suAuto) { toast("environment ready ✓", "ok"); setupClose(); }
       } else if (st.state === "failed") {
         errEl.textContent = st.error || "installation failed — press Install to retry";
@@ -716,7 +645,7 @@ const App = (() => {
       if (atBottom) logEl.scrollTop = logEl.scrollHeight;
     }
     if (st.state === "installing" && !suTimer) {
-      suTimer = setInterval(setupRefresh, 1500);
+      connection.poll("setup", setupRefresh, 1500); suTimer = true;
       btn.disabled = true;
       btn.textContent = "Installing…";
     }
@@ -734,8 +663,8 @@ const App = (() => {
       btn.disabled = false; btn.textContent = "Install missing";
       return;
     }
-    if (suTimer) clearInterval(suTimer);
-    suTimer = setInterval(setupRefresh, 1500);
+    if (suTimer) connection.unpoll("setup");
+    connection.poll("setup", setupRefresh, 1500); suTimer = true;
   }
   async function setupFirstRunCheck(){
     // auto-open the modal once for new installs (dismissed = manual only)
@@ -792,10 +721,16 @@ const App = (() => {
   }
 
   /* ------------ chips / top bar ------------ */
+  function paintConnectionChips(){
+    if (!$("#dot-server")) return;
+    $("#dot-server").className = "dot " + (serverUp ? (connection.state === "degraded" ? "warn" : "ok") : "err");
+    $("#chip-server").textContent = "gateway: " + connection.state;
+    const managed = connection.instance && connection.instance.mode === "user-service";
+    $("#btn-toggle").textContent = serverUp ? (managed ? "Stop service" : "Stop gateway") : "Stopped";
+    $("#btn-toggle").disabled = !serverUp;
+  }
   async function paintChips(){
-    $("#dot-server").className = "dot " + (serverUp ? "ok" : "err");
-    $("#chip-server").textContent = serverUp ? "gateway: up" : "gateway: unreachable";
-    $("#btn-toggle").textContent = serverUp ? "Stop" : "…";
+    paintConnectionChips();
     if (!serverUp) return;
     try {
       const cs = await api("/admin/dash/zcode-status");
@@ -808,95 +743,108 @@ const App = (() => {
       const total = Object.values(pool.by_state || {}).reduce((a, b) => a + b, 0);
       $("#chip-ready").textContent = `${pool.ready}/${total} accounts ready`;
     } catch (e) { $("#chip-ready").textContent = ""; }
-    pollUpdate();
+    await pollUpdate();
   }
 
   async function toggleServer(){
     if (!serverUp) { toast("gateway is not running", "warn"); return; }
-    if (!(await confirmDlg("Stop the gateway?",
-        "The process exits and frees the port.\nRelaunch ZcodeGateway.exe to start it again.",
-        "Stop", true))) return;
-    try { await api("/admin/dash/shutdown", {method: "POST"}); } catch (_) {}
-    serverUp = false; paintChips();
-    $("#btn-toggle").textContent = "Stopped";
-    toast("gateway stopped — you can close this window", "ok");
+    const managed = connection.instance && connection.instance.mode === "user-service";
+    if (!(await confirmDlg(managed ? "Stop service?" : "Stop gateway?",
+        "API clients will disconnect. Closing the dashboard does not stop the service.\nLogin autostart is unchanged. Start again explicitly using the native control or autozcoder start.",
+        managed ? "Stop service" : "Stop gateway", true))) return;
+    try {
+      await api("/admin/dash/shutdown", {method: "POST"});
+      connection.setStopped();
+      toast("service stopped — API clients are disconnected", "ok");
+    } catch (e) { toast(e.message, "err"); }
   }
 
   /* ------------ tab: accounts ------------ */
-  function filterAccounts(input) {
-    cache.acctQ = input.value;
-    const q = input.value.toLowerCase();
+  function filterAccounts(input) { cache.acctQ = input.value; applyAccountFilters(); }
+  function applyAccountFilters() {
+    const rows = cache.accounts || [], prefs = preferences.get();
     let count = 0;
-    document.querySelectorAll("#accounts-body tr[data-search]").forEach(row => {
-      const matches = row.dataset.search.includes(q);
-      row.hidden = !matches;
-      if (matches) count++;
+    document.querySelectorAll("#accounts-body tr[data-account-id]").forEach(row => {
+      const account = rows.find(a => a.id === row.dataset.accountId);
+      const matches = !!account && StudioPreferences.accountMatches(account, prefs.accountFilter, cache.acctQ || "");
+      row.hidden = !matches; if (matches) count++;
     });
-    const empty = $("#accounts-no-match");
-    if (empty) empty.hidden = count !== 0;
+    const empty = $("#accounts-no-match"); if (empty) empty.hidden = count !== 0;
+    const summary = $("#account-filter-summary"); if (summary) summary.textContent = `${count} / ${rows.length} accounts shown`;
+    document.querySelectorAll("[data-filter-kind='account']").forEach(button => button.setAttribute("aria-pressed", String(button.dataset.filter === prefs.accountFilter)));
   }
   async function renderAccounts(v = $("#view")){
-    const [accs, pool] = await Promise.all([
-      api("/admin/accounts"), api("/admin/pool/state")]);
+    const [accs, pool] = await Promise.all([api("/admin/accounts"), api("/admin/pool/state")]);
+    cache.accounts = Array.isArray(accs.accounts) ? accs.accounts : [];
+    cache.pool = pool; updateAccountDrawer();
+    if (palette) palette.update();
+    if (curTab !== "accounts") return;
+    renderAccountsData(v, accs, pool);
+    paintSocksBadge();
+  }
+  function renderAccountsData(v, accs = {accounts:cache.accounts || []}, pool = cache.pool){
     if (curTab !== "accounts") return;
     // The 4s poll rebuilds the whole table, which wiped an open actions menu a
     // few seconds after it opened (and could swallow a click mid-swap). Leave
     // the DOM alone while a menu is open; the next tick after it closes catches up.
     if (document.querySelector(".dd.open")) return;
+    const restoreView = preserveView(v);
     const previous = $("#acct-q");
     const focused = previous && document.activeElement === previous;
     const selection = focused ? [previous.selectionStart, previous.selectionEnd] : null;
     const query = previous?.value ?? cache.acctQ ?? "";
     const rows = accs.accounts;
-    let html = `<div class="toolbar">
-      <button class="btn btn-pri" onclick="App.loginStart()">🔑 Login with Zcode</button>
-      <button class="btn btn-ghost" onclick="App.doImport()">⤓ Import from Zcode app</button>
-      <button class="btn btn-ghost" onclick="App.doReload()">Reload pool</button>
-      <button class="btn btn-ghost" id="claim-all-btn" onclick="App.claimAllPending()">⚡ Claim all pending</button>
-      <button class="btn btn-ghost" id="purge-btn" onclick="App.purgeDrained()" title="remove accounts with 0 tokens remaining on every model (deletes their files)">🧹 Purge drained</button>
-      <span id="socks-badge" class="badge" style="background:var(--elev);color:var(--muted)">… socks</span>
+    const prefs = preferences.get(), counts = StudioPreferences.accountCounts(rows);
+    let html = `<div class="toolbar account-toolbar">
+      <button class="btn btn-pri" onclick="App.loginStart()">Add account</button>
+      <div class="dd studio-maintenance" data-dd>
+        <button class="dd-btn" data-act="acct-menu" aria-label="Account maintenance" title="Account maintenance">Manage accounts <span aria-hidden="true">⌄</span></button>
+        <div class="dd-menu">
+          <button class="dd-item" onclick="App.doImport()">Import from ZCode app</button>
+          <button class="dd-item" onclick="App.doReload()">Reload pool</button>
+          <div class="dd-sep"></div>
+          <button class="dd-item" id="claim-all-btn" onclick="App.claimAllPending()">Claim all pending</button>
+          <button class="dd-item danger" id="purge-btn" onclick="App.purgeDrained()" title="Removes drained account files">Purge drained accounts</button>
+        </div>
+      </div>
+      <span class="account-count">${rows.length} ${rows.length === 1 ? 'account' : 'accounts'}</span>
+      <span id="socks-badge" hidden class="badge">Proxy status</span>
       <button class="btn btn-quiet" onclick="App.refresh()">Refresh</button>
-      <div class="grow"></div>
-       <input type="search" id="acct-q" placeholder="Filter accounts…" aria-label="Filter accounts" style="max-width:230px"
-              oninput="App.filterAccounts(this)">
-    </div>`;
+      <input type="search" class="toolbar-search" id="acct-q" placeholder="Search account or status…" aria-label="Filter accounts" oninput="App.filterAccounts(this)">
+    </div>${filterToolbar("account",counts,prefs.accountFilter)}
+      <div class="filter-summary"><span id="account-filter-summary"></span><button class="btn btn-quiet btn-sm" onclick="App.clearAccountFilters()">Clear filters</button></div>
+      <p class="table-note">Needs attention includes credit exhaustion, active model caps and token refresh warnings. Cooling may overlap.</p>`;
     if (!rows.length) {
       html += `<div class="card"><div class="empty">
         <h3>No accounts yet</h3>
-        <p>Two ways in — no Zcode install needed for the first one.</p>
+        <p>Connect your ZCode account to make models available to your coding tools.</p>
         <div class="steps" style="justify-content:center">
           <div><b>1</b><span>Click Login with Zcode</span></div>
           <div><b>2</b><span>Approve access in your browser</span></div>
           <div><b>3</b><span>Account joins the pool — done</span></div>
         </div>
-        <button class="btn btn-pri" onclick="App.loginStart()">🔑 Login with Zcode</button>
+        <button class="btn btn-pri" onclick="App.loginStart()">Sign in with ZCode</button>
         <button class="btn btn-ghost" onclick="App.doImport()">Import from Zcode app</button>
         <button class="btn btn-ghost" onclick="App.tab('guide')">Setup guide</button>
       </div></div>`;
     } else {
       const shown = rows;
       html += `<p class="reset-note">Cap resets in ${esc(localZone)} · Based on Zcode quota windows.</p>`;
-      html += `<div class="tbl-wrap"><table><thead><tr>
-        <th>Email</th><th>State</th><th>Plan / expiry</th><th>Token</th>
-        <th>Daily quota / reset</th><th>Runs</th><th>Capped models / local reset</th><th>Err</th><th></th></tr></thead><tbody id="accounts-body">`;
+      html += `<div class="tbl-wrap"><table class="account-table"><thead><tr>
+        <th>Account</th><th>Status</th><th>Plan</th><th>Quota &amp; reset</th>
+        <th>Active requests</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody id="accounts-body">`;
       for (const a of shown) {
         const caps = capCell(a);
         const hasGlobal = (a.plans || []).some(p => /global|referral/i.test(p.name || p.plan_id || ''));
         const claimItems = `
                 <button class="dd-item" data-act="acct-claimstart-proxy" data-id="${esc(a.id)}"><span class="ic">⚡</span>Claim Start Plan · proxy</button>
                 <button class="dd-item" data-act="acct-claimstart-direct" data-id="${esc(a.id)}"><span class="ic">⚡</span>Claim Start Plan · direct</button>`;
-        // autopsy: last errors as a sparkline + hover detail for dead/cooling accounts
-        const errs = (a.error_history || []).slice(-12);
-        const errCell = errs.length ? `<span class="mono" title="${esc(errs.map(e => `${e.ago_s||'?'}s ago ${e.status||''} ${e.code||''}`).join('\n'))}" style="cursor:help;color:${a.state==='dead'?'var(--err)':'var(--warn)'}">${errs.length}err</span>` : '<span style="color:var(--faint)">—</span>';
-        html += `<tr data-search="${esc([a.email, a.id, a.state, a.source, ...(a.capped_models || [])].join(" ").toLowerCase())}">
-          <td><b>${esc(a.email || a.id)}</b><br><span class="mono" style="color:var(--faint)">${esc(a.id)}</span></td>
+        html += `<tr data-account-id="${esc(a.id)}">
+          <td class="account-identity"><button class="account-details-link" data-act="acct-details" data-id="${esc(a.id)}" aria-label="Details for ${esc(a.email || a.id)}">${esc(a.email || a.id)}</button></td>
           <td>${badge(a.state)}</td>
           <td>${planCell(a)}</td>
-          <td>${fmtLeft(a.expires_at || 0)}</td>
-          <td class="mono">${quotaCell(a.quotas)}</td>
+          <td class="quota">${quotaCell(a.quotas)}</td>
           <td>${a.in_flight}</td>
-          <td class="cap-cell">${caps}</td>
-          <td>${errCell}</td>
           <td style="white-space:nowrap; text-align:right">
             <div class="dd" data-dd>
               <button class="dd-btn" aria-label="account actions" title="actions"
@@ -912,8 +860,8 @@ const App = (() => {
             </div>
           </td></tr>`;
       }
-      html += `<tr id="accounts-no-match" hidden><td colspan="9">No accounts match this filter.</td></tr></tbody></table></div>
-        <p style="color:var(--faint); font-size:12px; margin-top:10px">
+      html += `<tr id="accounts-no-match" hidden><td colspan="6">No accounts match this filter.</td></tr></tbody></table></div>
+        <p class="table-note">
           Daily quotas are independent for GLM-5.3 and GLM-5.3-Flash.
           Reset times and plan expiry use your local timezone. A revoked token needs a new login.</p>`;
     }
@@ -926,7 +874,8 @@ const App = (() => {
         const act = btn.dataset.act;
         if (act === "acct-menu") return;      // toggled by the global dd handler
         closeDropdowns();
-        if (act === "acct-refresh") acct("refresh", id);
+        if (act === "acct-details") openAccountDetails(id, btn);
+        else if (act === "acct-refresh") acct("refresh", id);
         else if (act === "acct-balance") acct("balance", id);
         else if (act === "acct-enable") acct("enable", id);
         else if (act === "acct-remove") acctRemove(id);
@@ -940,7 +889,7 @@ const App = (() => {
       filterAccounts(q);
       if (focused) { q.focus(); q.setSelectionRange(...selection); }
     }
-    paintSocksBadge();
+    bindFilterButtons(v); applyAccountFilters(); restoreView();
   }
 
   async function doImport(){
@@ -970,10 +919,11 @@ const App = (() => {
       renderAccounts($("#view"));
     } catch (e) { toast(e.message, "err"); }
   }
-  async function acctRemove(id){
+  async function acctRemove(id, scope = preferenceScope){
     if (!(await confirmDlg("Remove account?",
         `${id} leaves the pool and stops serving requests.`,
         "Remove", true))) return;
+    if (!serverUp || scope !== preferenceScope || scope !== verifiedScope() || !cache.accounts?.some(a => a.id === id)) return;
     try { await api(`/admin/accounts/${encodeURIComponent(id)}`, {method:"DELETE"});
       toast("removed", "ok"); renderAccounts($("#view")); paintChips(); }
     catch (e) { toast(e.message, "err"); }
@@ -1069,8 +1019,8 @@ const App = (() => {
   function showLoginModal(s){
     $("#login-modal").style.display = "flex";
     paintLogin(s);
-    if (loginTimer) clearInterval(loginTimer);
-    loginTimer = setInterval(pollLogin, 1500);
+    if (loginTimer) connection.unpoll("login");
+    connection.poll("login", pollLogin, 1500); loginTimer = true;
   }
   function paintLogin(s){
     $("#lg-code").textContent = "Browser approval";
@@ -1091,7 +1041,7 @@ const App = (() => {
     catch (e) { return; }                          // keep polling
     paintLogin(s);
     if (["done","error","expired","cancelled"].includes(s.state)) {
-      clearInterval(loginTimer); loginTimer = null;
+      connection.unpoll("login"); loginTimer = null;
       const msg = {
         done:      "account added: " + (s.email || "unknown"),
         cancelled: "login cancelled",
@@ -1116,7 +1066,7 @@ const App = (() => {
     hideLoginModal();
   }
   function hideLoginModal(){
-    if (loginTimer) { clearInterval(loginTimer); loginTimer = null; }
+    if (loginTimer) { connection.unpoll("login"); loginTimer = null; }
     $("#login-modal").style.display = "none";
   }
   // copy the code on click
@@ -1355,7 +1305,24 @@ const App = (() => {
     if (!e.target.closest(".dd-menu")) closeDropdowns();
   });
    document.addEventListener("keydown", e => {
+     if (e.defaultPrevented || e.isComposing || e.keyCode === 229) return;
+     if (e.key === "Escape" && notifyOpen && !higherModalOpen(false)) {
+       e.preventDefault(); toggleNotify(); return;
+     }
+     if (higherModalOpen()) return;
+     if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k") {
+       if (drawer && drawer.isOpen()) return;
+       e.preventDefault(); openCommands(document.activeElement); return;
+     }
+     if ((palette && palette.isOpen()) || (drawer && drawer.isOpen())) return;
+     const editing = e.target.matches("input, textarea, select, [contenteditable='true']");
+     if (e.key === "/" && !editing && !e.ctrlKey && !e.metaKey && !e.altKey) {
+       const search = document.querySelector("#view input[type='search'], #view #mdl-q, #view #log-q");
+       if (search) { e.preventDefault(); search.focus(); }
+     }
      if (e.key === "Escape") {
+       document.body.classList.remove("nav-open");
+       $("#nav-toggle").setAttribute("aria-expanded", "false");
        if (notifyOpen) { toggleNotify(); return; }
        closeDropdowns();
      }
@@ -1365,18 +1332,31 @@ const App = (() => {
   const STATUS_RANK = {available:0, cooling:1, partial:1, capped:2,
                        no_entitlement:3, no_credit:4, unavailable:5};
   function sortModels(key){
-    const cur = cache.mdlSort || {key:"rank", dir:1};
-    cache.mdlSort = {key, dir: (cur.key === key ? -cur.dir : 1)};
-    renderModels($("#view"));
+    const cur = preferences.get().modelSort;
+    preferences.update({modelSort:{key, dir:cur.key === key ? -cur.dir : 1}});
+    if (cache.models) renderModelsData($("#view"), cache.models);
   }
-  function filterModels(input){
-    cache.mdlQ = input.value;
-    const q = input.value.toLowerCase();
-    document.querySelectorAll("#models-body tr").forEach(row => {
-      const name = row.querySelector("b.mono")?.textContent || "";
-      row.style.display = name.toLowerCase().includes(q) ? "" : "none";
+  function filterModels(input){ cache.mdlQ = input.value; applyModelFilters(); }
+  function applyModelFilters() {
+    const models = cache.models?.models || [], prefs = preferences.get();
+    let count = 0;
+    document.querySelectorAll("#models-body tr[data-model-id]").forEach(row => {
+      const model = models.find(m => m.model === row.dataset.modelId);
+      const matches = !!model && StudioPreferences.modelMatches(model,prefs.modelFilter,cache.mdlQ || "",prefs.favoritesOnly,prefs.favorites);
+      row.hidden = !matches; if (matches) count++;
     });
+    const empty = $("#models-no-match"); if (empty) empty.hidden = count !== 0;
+    const summary = $("#model-filter-summary"); if (summary) summary.textContent = `${count} / ${models.length} models shown`;
+    document.querySelectorAll("[data-filter-kind='model']").forEach(button => button.setAttribute("aria-pressed", String(button.dataset.filter === prefs.modelFilter)));
+    const favorites = $("#model-favorites-only"); if (favorites) favorites.setAttribute("aria-pressed",String(prefs.favoritesOnly));
   }
+  function toggleFavorite(id) {
+    const favorites = preferences.get().favorites;
+    preferences.update({favorites:favorites.includes(id) ? favorites.filter(value => value !== id) : [...favorites,id]});
+    if (cache.models) renderModelsData($("#view"),cache.models);
+    if (palette) palette.update();
+  }
+  function copyModel(id) { if (cache.models?.models.some(model => model.model === id)) copy(id); }
   async function syncModels(){
     try {
       const status = await api("/admin/models/catalog/refresh", {method:"POST"});
@@ -1385,36 +1365,30 @@ const App = (() => {
       await renderModels($("#view"));
     } catch (e) { toast(e.message, "err"); }
   }
-  async function renderModels(v){
+  async function renderModels(v = $("#view")){
     const data = await api("/admin/models/availability");
+    cache.models = data;
+    preferences.setCatalog((data.models || []).map(m => m.model));
+    if (palette) palette.update();
     if (curTab !== "models") return;
+    renderModelsData(v,data);
+  }
+  function renderModelsData(v, data = cache.models){
+    if (curTab !== "models" || !data || document.querySelector(".dd.open")) return;
+    const restoreView = preserveView(v);
     const opened = new Set([...document.querySelectorAll("#models-body details[open]")]
       .map(el => el.dataset.model));
     const previousInput = document.getElementById("mdl-q");
     const focused = document.activeElement === previousInput;
     const selection = focused ? [previousInput.selectionStart, previousInput.selectionEnd] : null;
     const q = previousInput?.value ?? cache.mdlQ ?? "";
-    const sort = cache.mdlSort || {key:"rank", dir:1};
-    cache.mdlSort = sort;
-    let models = data.models;
-    const keyFns = {
-      rank:  m => [STATUS_RANK[m.overall] ?? 9, m.model],
-      model: m => m.model,
-      lane:  m => [m.lane, m.model],
-      ratio: m => [(m.total_accounts ? m.available_on/m.total_accounts : 0), m.model],
-      next:  m => [m.next_release_in_s ?? 1e15, m.model],
-    };
-    const fn = keyFns[sort.key] || keyFns.rank;
-    models.sort((a, b) => {
-      const ka = fn(a), kb = fn(b);
-      const cmp = JSON.stringify(ka) < JSON.stringify(kb) ? -1
-                : JSON.stringify(ka) > JSON.stringify(kb) ? 1 : 0;
-      return cmp * sort.dir;
-    });
+    const prefs = preferences.get(), sort = prefs.modelSort;
+    const models = StudioPreferences.sortModels([...(data.models || [])],sort,prefs.favorites);
+    const counts = StudioPreferences.modelCounts(models);
     const th = (label, key) => {
       const on = sort.key === key;
       const arr = on ? (sort.dir === 1 ? "▲" : "▼") : "";
-      return `<th class="sortable" onclick="App.sortModels('${key}')">${label}<span class="arr">${arr}</span></th>`;
+      return `<th aria-sort="${on ? (sort.dir === 1 ? 'ascending' : 'descending') : 'none'}"><button class="table-sort" data-focus-key="model-sort-${key}" onclick="App.sortModels('${key}')">${label}<span class="arr" aria-hidden="true">${arr}</span></button></th>`;
     };
     const catalog = data.catalog || {};
     const source = catalog.source === "live" ? "Live Zcode catalog" : "Captured ZCode 3.14.4";
@@ -1426,29 +1400,32 @@ const App = (() => {
       <span style="color:var(--muted); font-size:12px">${esc(source + synced + syncError)}</span>
       <div class="grow"></div>
       <button class="btn btn-quiet btn-sm" onclick="App.syncModels()">Sync models</button>
-      <input type="text" id="mdl-q" placeholder="Filter models…" style="max-width:230px"
-             oninput="App.filterModels(this)"></div>`;
-    html += `<p class="reset-note">Reset times in ${esc(localZone)} · Based on Zcode quota windows.</p>`;
+      <input type="search" id="mdl-q" placeholder="Filter models…" aria-label="Filter models" style="max-width:230px"
+             oninput="App.filterModels(this)"></div>${filterToolbar("model",counts,prefs.modelFilter)}
+      <div class="filter-summary"><button class="filter-chip" id="model-favorites-only" aria-pressed="${prefs.favoritesOnly}" onclick="App.toggleFavoritesOnly()">Favorites only</button><span id="model-filter-summary"></span><button class="btn btn-quiet btn-sm" onclick="App.clearModelFilters()">Clear filters</button></div>`;
+    const missing = prefs.favorites.filter(id => !models.some(m => m.model === id));
+    if (missing.length) html += `<div class="missing-favorites"><p>Saved favorites not in the current catalog (kept until you remove them):</p>${missing.map(id => `<button class="model-favorite" data-act="model-favorite" data-id="${esc(id)}" aria-pressed="true" aria-label="Remove ${esc(id)} from favorites">★ ${esc(id)} · Not in catalog</button>`).join("")}</div>`;
+    html += `<p class="reset-note">${serverUp ? "" : "Stale cached catalog — gateway disconnected. "}Reset times in ${esc(localZone)} · Based on Zcode quota windows.</p>`;
     html += `<div class="tbl-wrap"><table class="tbl-compact"><thead><tr>
       ${th("Model","model")}${th("Lane","lane")}${th("On accounts","ratio")}
       ${th("Status","rank")}${th("Next reset · local","next")}</tr></thead><tbody id="models-body">`;
     for (const m of models) {
-      html += `<tr>
-        <td><details data-model="${esc(m.model)}" ${opened.has(m.model) ? "open" : ""}><summary><span class="caret">▶</span>
-            <b class="mono" style="font-size:12px">${esc(m.model)}</b></summary>
+      html += `<tr data-model-id="${esc(m.model)}">
+        <td><button class="model-favorite" data-act="model-favorite" data-id="${esc(m.model)}" aria-label="${prefs.favorites.includes(m.model) ? "Remove" : "Add"} ${esc(m.model)} ${prefs.favorites.includes(m.model) ? "from" : "to"} favorites" aria-pressed="${prefs.favorites.includes(m.model)}">${prefs.favorites.includes(m.model) ? "★" : "☆"}</button><button class="model-copy btn btn-quiet btn-sm" data-act="model-copy" data-id="${esc(m.model)}" aria-label="Copy model ID ${esc(m.model)}">Copy ID</button><details data-model="${esc(m.model)}" ${opened.has(m.model) ? "open" : ""}><summary data-focus-key="model-details-${esc(m.model)}"><span class="caret" aria-hidden="true">▶</span>
+            <b class="model-name">${esc(m.model)}</b></summary>
           <div class="model-acc">${
-            m.accounts.map(a => `<div>${esc(a.email || a.account_id)} —
+            (m.accounts || []).map(a => `<div>${esc(a.email || a.account_id)} —
               ${badge(a.status)} <span style="color:var(--muted)">${esc(a.reason || "")}</span>
               ${a.release_at || a.release_in_s != null ? `<div class="reset-time">${capRelease(a)}</div>` : ""}
               ${a.message ? `<div class="cap-message">${esc(a.message)}</div>` : ""}</div>`
             ).join("") || "<div>no accounts</div>"}</div></details></td>
         <td><span class="badge b-plan">coding plan</span></td>
         <td>${m.available_on}/${m.total_accounts}</td>
-        <td>${badge(m.overall)}</td>
+        <td>${badge(Object.prototype.hasOwnProperty.call(STATUS_RANK,m.overall) ? m.overall : "unknown")}${m.overall && !Object.prototype.hasOwnProperty.call(STATUS_RANK,m.overall) ? " " + esc(m.overall) : ""}</td>
         <td class="reset-time">${m.next_release_in_s != null ? capRelease({release_in_s:m.next_release_in_s}) : "—"}</td>
       </tr>`;
     }
-    html += `</tbody></table></div>
+    html += `<tr id="models-no-match" hidden><td colspan="5">${models.length ? "No models match these filters." : "No models in the loaded catalog."}</td></tr></tbody></table></div>
       <p style="color:var(--faint); font-size:12px; margin-top:10px">
         Click a model for its per-account breakdown. Availability is inferred
         from account state, plan expiry, quotas and known caps.
@@ -1461,6 +1438,10 @@ const App = (() => {
       input.focus();
       input.setSelectionRange(selection[0], selection[1]);
     }
+    bindFilterButtons(v);
+    v.querySelectorAll("[data-act='model-favorite'],[data-act='model-copy']").forEach(button => button.addEventListener("click", () =>
+      button.dataset.act === "model-favorite" ? toggleFavorite(button.dataset.id) : copyModel(button.dataset.id)));
+    restoreView();
   }
 
   /* ------------ tab: server ------------ */
@@ -1497,6 +1478,33 @@ api_key: ${esc(s.admin_key)}   # or any client key</p>
     </div>`;
     v.querySelectorAll("[data-copy]").forEach(el =>
       el.addEventListener("click", () => copy(el.dataset.copy)));
+    if (connection.instance && connection.instance.mode === "user-service") {
+      const lifecycle = document.createElement("div");
+      lifecycle.className = "card";
+      lifecycle.innerHTML = `<h2>User service</h2>
+        <p style="color:var(--muted);margin-bottom:12px">Closing the dashboard leaves API clients connected. Login autostart is opt-in and follows the user manager; it does not enable lingering or promise service after logout.</p>
+        <label class="switch"><input type="checkbox" id="service-autostart" disabled onchange="App.autostartChange(this)"><span class="slider"></span></label>
+        <span id="service-autostart-state" style="margin-left:10px">Reading login autostart…</span>
+        <p style="color:var(--faint);font-size:12px;margin-top:8px">Changing this setting does not start or stop the running service.</p>`;
+      v.appendChild(lifecycle);
+      try {
+        const status = await api("/admin/dash/service/autostart");
+        $("#service-autostart").checked = !!status.enabled;
+        $("#service-autostart").disabled = false;
+        $("#service-autostart-state").textContent = status.enabled ? "Login autostart on" : "Login autostart off";
+      } catch (e) { $("#service-autostart-state").textContent = "User service controls unavailable"; }
+    }
+  }
+  async function autostartChange(input){
+    const selected = input.checked;
+    input.disabled = true;
+    try {
+      const result = await api("/admin/dash/service/autostart", {method: "PUT", body: {enabled: selected}});
+      input.checked = !!result.enabled;
+      $("#service-autostart-state").textContent = result.enabled ? "Login autostart on" : "Login autostart off";
+      toast("login autostart changed — running service unchanged", "ok");
+    } catch (e) { input.checked = !selected; toast(e.message, "err"); }
+    finally { input.disabled = !serverUp; }
   }
 
   /* ------------ tab: settings ------------ */
@@ -1770,10 +1778,9 @@ api_key: ${esc(s.admin_key)}   # or any client key</p>
     <div class="card" style="padding:12px 16px"><div class="mono-list">${
       logsCleared && !level ? '<span style="color:var(--faint)">—</span>' :
       data.records.map(r => {
-        const col = r.level==="ERROR" ? "var(--err)" : r.level==="WARNING" ? "var(--warn)"
-                  : r.level==="DEBUG" ? "var(--faint)" : "var(--fg)";
-        return `<span style="color:var(--faint)">${esc(r.time)}</span> <span style="color:${col}">${esc(r.level)}</span> <span style="color:var(--muted)">${esc(r.logger)}:</span> ${esc(r.message)}`;
-      }).join("\n") || '<span style="color:var(--faint)">no log records yet</span>'
+        const severity = r.level === "ERROR" ? "error" : r.level === "WARNING" ? "warning" : "info";
+        return `<div class="log-row"><time class="log-time">${esc(r.time)}</time><span class="log-level ${severity}">${esc(r.level)}</span><span class="log-source">${esc(r.logger)}</span><span class="log-message">${esc(r.message)}</span></div>`;
+      }).join("") || '<span style="color:var(--faint)">no log records yet</span>'
     }</div></div>`;
     v.innerHTML = html;
   }
@@ -1802,7 +1809,13 @@ api_key: ${esc(s.admin_key)}   # or any client key</p>
   }
   function genAutoSave(){
     clearTimeout(genSaveTimer);
-    genSaveTimer = setTimeout(() => genSaveOptions(true), 350);
+    genSaveTimer = null;
+    if (!connection.connected) return;
+    const generation = connection.generation;
+    genSaveTimer = setTimeout(() => {
+      genSaveTimer = null;
+      if (connection.connected && connection.generation === generation) genSaveOptions(true);
+    }, 350);
   }
 
   /* manual captcha = a human must SEE and solve the challenge, so a headless
@@ -1908,6 +1921,7 @@ api_key: ${esc(s.admin_key)}   # or any client key</p>
       st = await api("/admin/dash/generator/status");
     }
     catch (e) {
+      if (!serverUp) return; // retain form values during a disconnect
       v.innerHTML = genSetupCard(e.message);
       genMounted = false;
       return;
@@ -2186,41 +2200,56 @@ api_key: ${esc(s.admin_key)}   # or any client key</p>
       if (!silent) toast("save: " + e.message, "err");
     }
   }
+  let pxActionBusy = false, pxCheckerRunning = false, pxActionRevision = 0;
+  function proxyControls(){
+    const disabled = !connection.connected || pxActionBusy || pxCheckerRunning;
+    document.querySelectorAll('[data-proxy-work]').forEach(el => { el.disabled = disabled; });
+    const stop = $("#px-btn-stop"); if (stop) stop.disabled = !connection.connected || pxActionBusy;
+  }
+  function proxyReady(){
+    if (!connection.connected || pxActionBusy || pxCheckerRunning) {
+      toast(!connection.connected ? "Gateway disconnected; nothing was sent." : "The proxy checker is busy.", "err"); return false;
+    }
+    return true;
+  }
+  async function proxyAction(path, body, label, msgId){
+    if (!proxyReady()) return;
+    pxActionBusy = true; pxActionRevision++; proxyControls();
+    const msg = $(msgId); if (msg) msg.textContent = "working…";
+    try {
+      const r = await api(path, {method:"POST",body});
+      const expectedAction = path.endsWith("/countries") ? "countries" : body.action;
+      if (r?.error || typeof r?.started !== "string" || r.started !== expectedAction)
+        throw new Error(r?.error || "The gateway did not start this operation");
+      pxCheckerRunning = true;
+      if (msg) msg.textContent = label + " started — completion not yet verified";
+      toast(label + " started", "ok");
+    } catch(e) {
+      const text = label + " failed: " + redactProxyText(e.message);
+      if (msg) msg.textContent = text; toast(text, "err");
+    } finally { pxActionBusy = false; pxActionRevision++; proxyControls(); refresh(); }
+  }
   async function proxyRun(action){
-    const val = id => ($("#"+id)||{}).value;
+    const val = id => $("#"+id)?.value;
     const chk = id => { const el = $("#"+id); return el ? !!el.checked : undefined; };
-    await api("/admin/dash/generator/proxies/run", {method:"POST", body: JSON.stringify({
-      action,
-      preset: val("px-preset") || undefined,
-      max_latency: parseFloat(val("px-lat")||"6"),
-      timeout: parseInt(val("px-timeout")||"10", 10),
-      concurrency: parseInt(val("px-conc")||"400", 10),
-      probe_timeout: parseFloat(val("px-ptimeout")||"3"),
-      probe_concurrency: parseInt(val("px-pconc")||"300", 10),
-      dead_cache_hours: parseFloat(val("px-dead")||"0"),
-      prefilter: chk("px-prefilter"),
-      retry_failed: chk("px-retry")})});
-    refresh();
+    await proxyAction("/admin/dash/generator/proxies/run", {
+      action, preset:val("px-preset") || undefined, max_latency:parseFloat(val("px-lat")||"6"),
+      timeout:parseInt(val("px-timeout")||"10",10), concurrency:parseInt(val("px-conc")||"400",10),
+      probe_timeout:parseFloat(val("px-ptimeout")||"3"), probe_concurrency:parseInt(val("px-pconc")||"300",10),
+      dead_cache_hours:parseFloat(val("px-dead")||"0"), prefilter:chk("px-prefilter"), retry_failed:chk("px-retry")
+    }, "Proxy " + action, "#px-maint-msg");
   }
   async function proxyMaintain(action){
-    const msg = $("#px-maint-msg");
-    if (msg) msg.textContent = "working…";
-    try {
-      await api("/admin/dash/generator/proxies/maintain", {method:"POST",
-        body: JSON.stringify({action})});
-      if (msg) msg.textContent = "✓ " + action + " started";
-      refresh();
-    } catch (e) { if (msg) msg.textContent = action + " failed: " + e.message; }
+    if (!proxyReady() || !["prune","clear-bad","clear-used","clear-dead"].includes(action)) return;
+    const generation = connection.generation, revision = pxActionRevision;
+    const descriptions = {prune:"Remove long-unhealthy proxies from the pool?", "clear-bad":"Reset the TLS / MITM blacklist? Previously rejected proxies can be checked again.",
+      "clear-used":"Reset the used list? Previously consumed proxies can be picked again.", "clear-dead":"Reset the dead cache? Recently failed hosts can be checked again."};
+    if (!(await confirmDlg("Confirm pool maintenance", descriptions[action], "Continue", true))) return;
+    if (!connection.connected || generation !== connection.generation || revision !== pxActionRevision) { toast("Connection or checker state changed; confirm again.", "err"); return; }
+    await proxyAction("/admin/dash/generator/proxies/maintain", {action}, action, "#px-maint-msg");
   }
   async function proxyCountries(){
-    const msg = $("#px-countries-msg");
-    if (msg) msg.textContent = "looking up…";
-    try {
-      const r = await api("/admin/dash/generator/proxies/countries", {method:"POST", body:"{}"});
-      if (r && r.error) throw new Error(r.error);
-      if (msg) msg.textContent = "✓ started — watch the log below";
-      refresh();
-    } catch (e) { if (msg) msg.textContent = "failed: " + e.message; }
+    await proxyAction("/admin/dash/generator/proxies/countries", {}, "Country lookup", "#px-countries-msg");
   }
   async function proxyYield(){
     const box = $("#px-yield");
@@ -2251,8 +2280,14 @@ api_key: ${esc(s.admin_key)}   # or any client key</p>
     }
   }
   async function proxyStop(){
-    await api("/admin/dash/generator/proxies/stop", {method:"POST", body:"{}"});
-    refresh();
+    if (!connection.connected || pxActionBusy) return;
+    pxActionBusy = true; pxActionRevision++; proxyControls();
+    try {
+      const r = await api("/admin/dash/generator/proxies/stop", {method:"POST",body:{}});
+      if (r?.error) throw new Error(r.error);
+      toast("Checker stop requested; awaiting its status. Other workers are unchanged.");
+    } catch(e) { toast("Checker stop: " + redactProxyText(e.message), "err"); }
+    finally { pxActionBusy = false; pxActionRevision++; proxyControls(); refresh(); }
   }
   async function genProxyImport(){
     const ta = $("#px-import");
@@ -2328,37 +2363,65 @@ api_key: ${esc(s.admin_key)}   # or any client key</p>
     refresh();
   }
 
+  const pxAutoState = {auto_verify:false, interval_min:45, last_verified_at:null};
+  let pxAutoBusy = false, pxAutoLoaded = false, pxAutoRevision = 0, pxAutoFlight = null, pxAutoTrailing = false, pxAutoError = "";
+  function pxAutoNormalize(r){
+    const interval = r?.auto_interval_min ?? r?.interval_min;
+    if (typeof r?.auto_verify !== "boolean" || !Number.isInteger(interval) || interval < 5 || interval > 10080)
+      throw new Error("Invalid auto-verify settings response");
+    return {auto_verify:r.auto_verify, interval_min:interval, last_verified_at:r.last_verified_at || null};
+  }
   async function pxAutoVerify(enabled){
-    const sel = $("#px-auto-interval");
-    const interval = sel ? parseInt(sel.value, 10) : 45;
+    const interval = Number($("#px-auto-interval")?.value || pxAutoState.interval_min);
+    if (!connection.connected || pxAutoBusy || !pxAutoLoaded) { pxAutoPaint(); return; }
+    if (typeof enabled !== "boolean" || !Number.isInteger(interval) || interval < 5 || interval > 10080) {
+      toast("Choose a valid whole-minute interval (5–10080).", "err"); pxAutoPaint(); return;
+    }
+    pxAutoBusy = true; pxAutoRevision++; pxAutoError = ""; pxAutoPaint();
+    const generation = connection.generation;
     try {
-      const r = await api("/admin/dash/proxy/auto_verify", {
-        method: "POST",
-        body: JSON.stringify({enabled, interval_min: interval})
-      });
-      toast(r.auto_verify ? `auto re-verify on (every ${r.interval_min} min)` : "auto re-verify off", "ok");
-      pxAutoPaint();
-    } catch(e) { toast("auto-verify: " + e.message, "err"); }
+      const r = await api("/admin/dash/proxy/auto_verify", {method:"POST",body:{enabled,interval_min:interval}});
+      if (generation !== connection.generation || !connection.connected) return;
+      Object.assign(pxAutoState, pxAutoNormalize(r));
+      toast(pxAutoState.auto_verify ? `auto re-verify on (every ${pxAutoState.interval_min} min)` : "auto re-verify off", "ok");
+    } catch(e) { pxAutoError = redactProxyText(e.message); toast("auto-verify: " + pxAutoError, "err"); }
+    finally { pxAutoBusy = false; pxAutoRevision++; pxAutoTrailing = true; pxAutoPaint(); pxAutoRefresh(); }
   }
-
   function pxAutoPaint(){
+    const disabled = !connection.connected || pxAutoBusy || !pxAutoLoaded;
     const cb = $("#px-auto-verify");
-    if (cb) cb.checked = pxAutoState.auto_verify;
+    if (cb) { cb.checked = pxAutoState.auto_verify; cb.disabled = disabled; }
+    const sel = $("#px-auto-interval");
+    if (sel) {
+      if (![...sel.options].some(o => o.value === String(pxAutoState.interval_min))) {
+        const option = document.createElement("option"); option.value = String(pxAutoState.interval_min);
+        option.textContent = "every " + pxAutoState.interval_min + " min"; sel.appendChild(option);
+      }
+      sel.value = String(pxAutoState.interval_min); sel.disabled = disabled;
+    }
     const lbl = $("#px-auto-state");
-    if (lbl) lbl.textContent = pxAutoState.auto_verify
-      ? (pxAutoState.last_verified_at
-          ? `· verified ${Math.max(0, Math.round((Date.now()/1000 - pxAutoState.last_verified_at)/60))} min ago`
-          : "· first check pending")
-      : "";
+    if (lbl) lbl.textContent = pxAutoError ? "Stale / unavailable: " + pxAutoError : !connection.connected ? "Stale / offline"
+      : pxAutoBusy ? "Saving…" : !pxAutoLoaded ? "Loading…" : pxAutoState.auto_verify
+        ? (pxAutoState.last_verified_at ? `· verified ${Math.max(0, Math.round((Date.now()/1000 - pxAutoState.last_verified_at)/60))} min ago` : "· first check pending") : "Off (runtime-only setting)";
   }
-  const pxAutoState = {auto_verify: false, last_verified_at: null};
-  async function pxAutoRefresh(){
-    try {
-      const r = await api("/admin/dash/proxy/socks_ready");
-      pxAutoState.auto_verify = !!r.auto_verify;
-      pxAutoState.last_verified_at = r.last_verified_at || null;
-      pxAutoPaint();
-    } catch(e) { /* decorative */ }
+  function pxAutoRefresh(){
+    if (!connection.connected || curTab !== "proxy") return Promise.resolve();
+    if (pxAutoFlight || pxAutoBusy) { pxAutoTrailing = true; return pxAutoFlight || Promise.resolve(); }
+    pxAutoTrailing = false;
+    const revision = pxAutoRevision, generation = connection.generation;
+    pxAutoFlight = (async () => {
+      try {
+        const r = await api("/admin/dash/proxy/socks_ready");
+        if (revision !== pxAutoRevision || generation !== connection.generation || curTab !== "proxy" || !connection.connected) return;
+        Object.assign(pxAutoState, pxAutoNormalize(r)); pxAutoLoaded = true; pxAutoError = "";
+      } catch(e) { if (revision === pxAutoRevision && generation === connection.generation && curTab === "proxy") pxAutoError = redactProxyText(e.message); }
+      finally {
+        pxAutoFlight = null;
+        if (curTab === "proxy") pxAutoPaint();
+        if (pxAutoTrailing && !pxAutoBusy && curTab === "proxy" && connection.connected) pxAutoRefresh();
+      }
+    })();
+    return pxAutoFlight;
   }
 
   /* ------------ email system (domains + worker inbox) ------------ */
@@ -2654,7 +2717,13 @@ api_key: ${esc(s.admin_key)}   # or any client key</p>
   let mailSaveTimer = null;
   function mailAutoSave(){
     clearTimeout(mailSaveTimer);
-    mailSaveTimer = setTimeout(() => mailSave(true), 500);
+    mailSaveTimer = null;
+    if (!connection.connected) return;
+    const generation = connection.generation;
+    mailSaveTimer = setTimeout(() => {
+      mailSaveTimer = null;
+      if (connection.connected && connection.generation === generation) mailSave(true);
+    }, 500);
   }
   async function mailSave(silent){
     const val = id => ($("#"+id)||{}).value;
@@ -2720,25 +2789,92 @@ api_key: ${esc(s.admin_key)}   # or any client key</p>
       <span class="k">${esc(labels[k] || k)}</span></span>`).join("");
   }
   /* ------------ tab: proxy (edge relays) ------------ */
-  let relayData = { enabled: true, active_url: "", active_id: "", models: ["GLM-5.3"], relays: [] };
-  let relayLoading = false;
+  let relayData = null, relayFlight = null, relayTrailing = false;
+  let relayRevision = 0, relayBusy = false, relayLoadState = "loading", relayLoadError = "";
   let relaySel = new Set();       // ids ticked for bulk delete
 
-  async function loadRelays(){
-    if (relayLoading) return;
-    relayLoading = true;
-    try {
-      const res = await api("/admin/dash/relays");
-      if (res) relayData = res;
-    } catch(e) {
-      console.warn("Failed to load relays:", e);
-    } finally {
-      relayLoading = false;
-    }
-    renderRelaysUI();
+  // Redact through the LAST @ in an authority: passwords may themselves contain @.
+  // Apply before truncating/escaping; the original URL never enters a title or label.
+  function redactProxyText(value){
+    return String(value ?? "").replace(/([a-z][a-z0-9+.-]*:\/\/)([^\s/<>"?#]*)/gi,
+      (_, scheme, authority) => scheme + (authority.includes("@") ? "***@" + authority.slice(authority.lastIndexOf("@") + 1) : authority))
+      .replace(/(^|\s)([^\s/<>"?#]*@)([^\s/<>"?#]+)/g, "$1***@$3");
   }
-
+  function relayCanWrite(){
+    if (!connection.connected || relayBusy || !relayData || relayLoadError) {
+      toast(!connection.connected ? "Gateway disconnected; nothing was sent." : "Wait for relay settings to finish loading or saving.", "err");
+      renderRelaysUI(); return false;
+    }
+    return true;
+  }
+  function loadRelays(){
+    if (curTab !== "proxy" || !connection.connected) return Promise.resolve();
+    if (relayFlight || relayBusy) { relayTrailing = true; return relayFlight || Promise.resolve(); }
+    relayTrailing = false;
+    const revision = relayRevision, generation = connection.generation;
+    relayLoadState = relayData ? "stale" : "loading"; relayLoadError = "";
+    renderRelaysUI();
+    relayFlight = (async () => {
+      try {
+        const res = await api("/admin/dash/relays");
+        if (revision !== relayRevision || generation !== connection.generation || curTab !== "proxy" || !connection.connected) return;
+        if (!res || !Array.isArray(res.relays)) throw new Error("Invalid relay settings response");
+        relayData = res; relayLoadState = "loaded";
+      } catch(e) {
+        if (revision !== relayRevision || generation !== connection.generation || curTab !== "proxy") return;
+        relayLoadState = relayData ? "stale" : "error"; relayLoadError = redactProxyText(e.message);
+      } finally {
+        relayFlight = null;
+        renderRelaysUI();
+        // Await settlement of the deduplicated GET before issuing the required fresh GET.
+        if (relayTrailing && !relayBusy && curTab === "proxy" && connection.connected) loadRelays();
+      }
+    })();
+    return relayFlight;
+  }
+  async function relayMutation(path, options, success){
+    if (!relayCanWrite()) return false;
+    relayBusy = true; relayRevision++; relayLoadState = "stale"; relayLoadError = "";
+    const generation = connection.generation;
+    renderRelaysUI();
+    try {
+      const res = await api(path, options);
+      if (generation !== connection.generation || !connection.connected) throw new Error("Connection changed; refresh to reconcile this action.");
+      if (res?.error) throw new Error(typeof res.error === "string" ? res.error : res.error.message || "Relay action failed");
+      if (res?.settings && Array.isArray(res.settings.relays)) relayData = res.settings;
+      if (success) success(res);
+      return true;
+    } catch(e) {
+      relayLoadError = redactProxyText(e.message); toast("Relay action: " + relayLoadError, "err"); return false;
+    } finally {
+      relayBusy = false; relayRevision++; relayTrailing = true;
+      renderRelaysUI();
+      if (curTab === "proxy" && connection.connected) loadRelays();
+    }
+  }
+  function relayObservation(r){
+    const tested = Number.isFinite(r.last_tested_at) && r.last_tested_at > 0;
+    const verified = r.last_probe_kind === "forwarding" && r.last_probe_verified === true;
+    const label = verified ? "Forwarding verified" : r.last_status === 200 ? "200 · legacy / unverified"
+      : tested || r.last_error || r.last_status ? "Probe failed (" + (r.last_status || "no status") + ")" : "Never tested";
+    const error = redactProxyText(r.last_error || "");
+    return `<span class="badge" style="color:${verified ? 'var(--ok)' : r.last_status === 200 ? 'var(--warn)' : tested ? 'var(--err)' : 'var(--faint)'}">${esc(label)}${verified ? ` (${Number(r.last_latency_ms) || 0}ms)` : ''}</span>`
+      + (tested ? `<div style="font-size:10px;color:var(--faint)">checked ${Math.max(0, Math.round((Date.now()/1000 - r.last_tested_at)/60))}m ago</div>` : '')
+      + (error ? `<div title="${esc(error)}" style="font-size:10px;color:var(--muted)">${esc(error.slice(0,110))}</div>` : '')
+      + `<div style="font-size:10px;color:var(--faint)">Model / SSE: not tested</div>`;
+  }
   function renderRelaysUI(){
+    if (curTab !== "proxy") return;
+    const message = $("#relay-status-msg");
+    if (message) message.textContent = (relayBusy ? "Saving / testing…" : relayLoadState === "loaded" ? "Loaded" : relayLoadState === "loading" ? "Loading…" : relayLoadState === "stale" ? "Stale snapshot" : "Could not load settings")
+      + (relayLoadError ? " · " + relayLoadError : "") + (!connection.connected ? " · offline" : "");
+    const disabled = relayBusy || !connection.connected || !relayData || !!relayLoadError;
+    document.querySelectorAll('#relay-card input, #relay-card select, #relay-card [data-relay-write]').forEach(el => { el.disabled = disabled; });
+    if (!relayData) {
+      const list = $("#relay-list");
+      if (list) list.innerHTML = `<div class="empty">${relayLoadState === "error" ? 'Relay settings unavailable. Use Refresh to retry.' : 'Loading relay settings…'}</div>`;
+      return;
+    }
     const chkEn = $("#relay-enabled");
     if (chkEn) chkEn.checked = !!relayData.enabled;
     const chk53 = $("#relay-mod-53");
@@ -2750,10 +2886,11 @@ api_key: ${esc(s.admin_key)}   # or any client key</p>
 
     const list = $("#relay-list");
     if (!list) return;
+    const restore = preserveView(list);
     const relays = relayData.relays || [];
     if (!relays.length) {
       list.innerHTML = `<div class="empty" style="padding:16px;text-align:center;color:var(--muted);font-size:12.5px;background:var(--field);border:1px dashed var(--border);border-radius:8px">
-        No edge relays configured. Deploy a serverless relay above (Cloudflare, Vercel, Deno, or Netlify) to route GLM-5.3.
+        No edge relays configured. Deploy a supported relay above or add an existing URL.
       </div>`;
       return;
     }
@@ -2795,20 +2932,18 @@ api_key: ${esc(s.admin_key)}   # or any client key</p>
       <tbody>
         ${relays.map(r => {
           const isActive = r.id === relayData.active_id || r.url === relayData.active_url;
-          const ageMin = r.last_tested_at ? Math.round((Date.now()/1000 - r.last_tested_at)/60) : null;
-          const statusBadge = r.last_status === 200
-            ? `<span class="badge" style="background:rgba(34,197,94,0.12);color:var(--ok)">✓ 200 OK (${r.last_latency_ms || 0}ms)</span>`
-            : (r.last_status ? `<span class="badge" style="background:rgba(239,68,68,0.12);color:var(--err)">✗ ${r.last_status}</span>` : `<span style="color:var(--faint)">untested</span>`)
-              + (ageMin !== null ? `<div style="font-size:10px;color:var(--faint);margin-top:2px">checked ${ageMin}m ago${r.last_error ? ' · <span title="' + esc(String(r.last_error)) + '" style="color:var(--muted)">' + esc(String(r.last_error).slice(0,110)) + '</span>' : ''}</div>` : '');
+          const statusBadge = relayObservation(r);
+          const url = redactProxyText(r.url);
+          const provider = Object.prototype.hasOwnProperty.call(typeIcons, r.type) ? typeIcons[r.type] : esc(redactProxyText(r.type || "Unknown"));
           const picked = relaySel.has(r.id);
           return `<tr style="border-top:1px solid var(--border); ${picked ? 'background:rgba(124,92,255,0.10)' : (isActive ? 'background:rgba(255,255,255,0.02)' : '')}">
             <td style="padding:8px"><input type="checkbox" data-act="relaySel" data-id="${esc(r.id)}" ${picked ? 'checked' : ''}></td>
             <td style="padding:8px">
               <input type="radio" name="active-relay" ${isActive ? 'checked' : ''} data-act="relaySetActive" data-id="${esc(r.id)}">
             </td>
-            <td style="padding:8px"><b>${esc(r.name || r.id)}</b></td>
-            <td style="padding:8px">${typeIcons[r.type] || r.type}</td>
-            <td style="padding:8px" class="mono" title="${esc(r.url)}">${esc(r.url.length > 42 ? r.url.slice(0, 39) + '…' : r.url)}</td>
+            <td style="padding:8px"><b>${esc(redactProxyText(r.name || r.id))}</b></td>
+            <td style="padding:8px">${provider}${r.type === 'netlify' ? '<div class="help">Legacy buffered template / streaming unverified</div>' : ''}</td>
+            <td style="padding:8px" class="mono" title="${esc(url)}">${esc(url.length > 42 ? url.slice(0, 39) + '…' : url)}</td>
             <td style="padding:8px" id="relay-status-${esc(r.id)}">${statusBadge}</td>
             <td style="padding:8px;text-align:right;white-space:nowrap">
               <button class="btn btn-quiet btn-sm" data-act="relayTest" data-id="${esc(r.id)}" title="Ping test">↻ Test</button>
@@ -2820,6 +2955,8 @@ api_key: ${esc(s.admin_key)}   # or any client key</p>
     </table>`;
     const all = $("#relay-sel-all");
     if (all) all.indeterminate = nSel > 0 && nSel < relays.length;
+    list.querySelectorAll('input, button').forEach(el => { el.disabled = disabled || (el.dataset.act === "relayDeleteSel" && !nSel); });
+    restore();
   }
 
   function relayToggle(id, on){
@@ -2827,118 +2964,195 @@ api_key: ${esc(s.admin_key)}   # or any client key</p>
     renderRelaysUI();
   }
   function relayToggleAll(on){
-    relaySel = on ? new Set((relayData.relays || []).map(r => r.id)) : new Set();
+    relaySel = on ? new Set((relayData?.relays || []).map(r => r.id)) : new Set();
     renderRelaysUI();
   }
   async function deleteRelays(all){
-    const relays = relayData.relays || [];
-    const picked = all ? relays : relays.filter(r => relaySel.has(r.id));
+    if (!relayCanWrite()) return;
+    const picked = (relayData.relays || []).filter(r => all || relaySel.has(r.id));
     if (!picked.length) return;
-    const hitsActive = picked.some(r => r.id === relayData.active_id);
-    const names = picked.slice(0, 6).map(r => r.name || r.id).join(", ")
-      + (picked.length > 6 ? ` … +${picked.length - 6} more` : "");
-    const msg = (all
-        ? `All ${picked.length} relays will be removed from the list.`
-        : `${picked.length} selected relay${picked.length === 1 ? '' : 's'} will be removed from the list: ${names}.`)
-      + " The deployments themselves stay on their provider."
-      + (hitsActive ? (all ? " Requests will go direct until you add a relay." : " The active relay is among them — another one (or none) becomes active.") : "");
-    if (!(await confirmDlg(all ? "Delete ALL relays?" : `Delete ${picked.length} relay${picked.length === 1 ? '' : 's'}?`,
-                           msg, "Delete", true))) return;
-    try {
-      const r = await api("/admin/dash/relays/delete", {
-        method: "POST",
-        body: JSON.stringify(all ? {all: true} : {ids: picked.map(x => x.id)})
-      });
-      relaySel = new Set();
-      toast(`${r.deleted} relay${r.deleted === 1 ? '' : 's'} deleted`, "ok");
-      loadRelays();
-    } catch(e) {
-      toast("Failed to delete relays: " + e.message, "err");
-    }
+    const generation = connection.generation, revision = relayRevision;
+    const names = picked.slice(0,6).map(r => redactProxyText(r.name || r.id)).join(", ");
+    if (!(await confirmDlg(all ? "Delete ALL relays?" : "Delete selected relays?",
+        `${picked.length} relay(s) will be removed: ${names}. Deployments stay on their provider. Required relay routes may become unavailable.`, "Delete", true))) return;
+    if (generation !== connection.generation || revision !== relayRevision) { toast("Relay state changed; review and confirm again.", "err"); return; }
+    // Delete only the confirmed snapshot, not rows concurrently added by another client.
+    await relayMutation("/admin/dash/relays/delete", {method:"POST", body:{ids:picked.map(r => r.id)}}, r => {
+      relaySel.clear(); toast(`${r.deleted} relay(s) deleted`, "ok");
+    });
   }
 
-  async function saveRelayOptions(){
-    const chkEn = $("#relay-enabled");
-    const chk53 = $("#relay-mod-53");
-    const chkFlash = $("#relay-mod-flash");
-    const selStrategy = $("#relay-strategy");
-    const models = [];
-    if (chk53 && chk53.checked) models.push("GLM-5.3");
-    if (chkFlash && chkFlash.checked) models.push("GLM-5.3-Flash");
-    const enabled = chkEn ? chkEn.checked : true;
-    const strategy = selStrategy ? selStrategy.value : "single";
-    try {
-      const res = await api("/admin/dash/relays/settings", {
-        method: "POST",
-        body: JSON.stringify({ enabled, models, strategy, active_id: relayData.active_id })
-      });
-      if (res && res.settings) relayData = res.settings;
-      toast("Relay options saved", "ok");
-    } catch(e) {
-      toast("Failed to save relay options: " + e.message, "err");
-    }
+  async function saveRelayOptions(field){
+    const body = {};
+    if (field === "enabled") body.enabled = !!$("#relay-enabled")?.checked;
+    else if (field === "strategy") body.strategy = $("#relay-strategy")?.value;
+    else if (field === "models") {
+      body.models = [];
+      if ($("#relay-mod-53")?.checked) body.models.push("GLM-5.3");
+      if ($("#relay-mod-flash")?.checked) body.models.push("GLM-5.3-Flash");
+    } else return;
+    await relayMutation("/admin/dash/relays/settings", {method:"POST", body}, () => toast("Relay options saved", "ok"));
   }
 
   async function setActiveRelay(id){
-    try {
-      const res = await api("/admin/dash/relays/settings", {
-        method: "POST",
-        body: JSON.stringify({ active_id: id })
-      });
-      if (res && res.settings) relayData = res.settings;
-      renderRelaysUI();
-      toast("Active relay updated", "ok");
-    } catch(e) {
-      toast("Failed to set active relay: " + e.message, "err");
-    }
+    await relayMutation("/admin/dash/relays/settings", {method:"POST", body:{active_id:id}}, () => toast("Active relay updated", "ok"));
   }
 
   async function testRelay(id){
-    const el = $("#relay-status-" + id);
-    if (el) el.innerHTML = `<span style="color:var(--muted)">testing…</span>`;
-    try {
-      const res = await api("/admin/dash/relays/test", {
-        method: "POST",
-        body: JSON.stringify({ id })
-      });
-      if (res && res.ok) {
-        toast(`Relay test passed: 200 OK (${res.elapsed_ms || 0}ms)`, "ok");
-      } else {
-        toast(`Relay test failed: ${(res && res.error) || (res && res.status) || 'error'}`, "err");
-      }
-      loadRelays();
-    } catch(e) {
-      toast("Test error: " + e.message, "err");
-      loadRelays();
-    }
+    await relayMutation("/admin/dash/relays/test", {method:"POST", timeoutMs:25000, body:{id}}, res => {
+      if (res?.ok && res.probe_kind === "forwarding" && res.probe_verified === true)
+        toast(`Forwarding verified (${res.elapsed_ms || 0}ms). Model / SSE not tested.`, "ok");
+      else toast(res?.ok ? "Legacy / unverified probe. Model / SSE not tested." : "Forwarding probe failed.", "err");
+    });
   }
 
   async function deleteRelay(id){
+    if (!relayCanWrite()) return;
     const r = (relayData.relays || []).find(x => x.id === id);
-    const name = (r && (r.name || r.id)) || id;
-    const url = (r && r.url) || "";
-    const isActive = relayData.active_id === id;
+    if (!r) return;
+    const generation = connection.generation, revision = relayRevision;
     if (!(await confirmDlg("Delete relay?",
-        `${name}${url ? ` — ${url}` : ""} will be removed from the relay list.` +
-        (isActive ? " It is the ACTIVE relay — another one (or none) becomes active." : ""),
-        "Delete", true))) return;
-    try {
-      await api(`/admin/dash/relays/${encodeURIComponent(id)}`, { method: "DELETE" });
-      toast("Relay deleted", "ok");
-      loadRelays();
-    } catch(e) {
-      toast("Failed to delete relay: " + e.message, "err");
-    }
+        `${redactProxyText(r.name || r.id)} — ${redactProxyText(r.url)} will be removed from the relay list. The remote deployment stays.`, "Delete", true))) return;
+    if (generation !== connection.generation || revision !== relayRevision) { toast("Relay state changed; review and confirm again.", "err"); return; }
+    await relayMutation(`/admin/dash/relays/${encodeURIComponent(id)}`, {method:"DELETE"}, () => toast("Relay deleted", "ok"));
   }
 
+  const relayJobsPath = "/admin/dash/relays/deploy/jobs";
+  let relayJobScope = null, relayOperationId = null, relayJobGeneration = null, relayIgnoreTerminal = false;
+  let relayJob = null, relayJobState = "loading", relayJobError = "", relayJobFlight = null;
+  let relaySubmitting = false, relayRegistering = false, relayModalType = null, relayModalRevision = 0;
+  function relayJobVisible(){
+    return curTab === "proxy" || !!relayModalType;
+  }
+  function relayBindJobScope(){
+    const scope = connection.instance?.config_id;
+    if (!scope || !connection.connected) return false;
+    if (scope !== relayJobScope) {
+      relayJobScope = scope; relayOperationId = null; relayJob = null; relayIgnoreTerminal = false;
+      relayJobGeneration = null; relayJobState = "loading"; relayJobError = "";
+      try {
+        const saved = JSON.parse(sessionStorage.getItem("gw-relay-deploy:" + scope) || "null");
+        if (saved?.config_id === scope && typeof saved.operation_id === "string" && saved.operation_id.length < 250)
+          relayOperationId = saved.operation_id;
+      } catch (_) {}
+    }
+    return true;
+  }
+  function relayStoreOperation(id){
+    // Must succeed BEFORE the creation POST; never store tokens, payload or job data.
+    sessionStorage.setItem("gw-relay-deploy:" + relayJobScope, JSON.stringify({config_id:relayJobScope,operation_id:id}));
+    relayOperationId = id;
+  }
+  function relayAcceptJob(snapshot){
+    if (!snapshot || typeof snapshot.generation !== "string" || !Object.prototype.hasOwnProperty.call(snapshot, "job"))
+      throw new Error("Invalid deployment status response");
+    relayJobGeneration = snapshot.generation;
+    const previous = relayJob?.status;
+    if (snapshot.job) {
+      if (typeof snapshot.job.id !== "string" || !["running","succeeded","failed","outcome_unknown","registration_failed"].includes(snapshot.job.status))
+        throw new Error("Invalid deployment job response");
+      if (relayOperationId && snapshot.job.id !== relayOperationId) throw new Error("Deployment identity changed; reconcile before starting again");
+      if (!relayOperationId && (!relayIgnoreTerminal || snapshot.job.status === "running" || snapshot.active_id === snapshot.job.id)) relayStoreOperation(snapshot.job.id);
+      relayJob = snapshot.job; relayJobState = "loaded"; relayJobError = "";
+      if (relayJob.status === "succeeded" && previous !== "succeeded") {
+        relayRevision++; relayTrailing = true; loadRelays();
+      }
+    } else if (relayOperationId) {
+      relayJob = null; relayJobState = "unknown";
+      relayJobError = "Outcome unknown. The gateway no longer has this operation. Check the provider before starting anything new.";
+    } else { relayJob = null; relayJobState = "loaded"; relayJobError = ""; }
+  }
+  function relayJobPolling(){
+    if (connection.connected && relayJobVisible() && !relaySubmitting && !relayRegistering && (relayJob?.status === "running" || relayJobState === "checking" || relayJobState === "loading"))
+      connection.poll("relay-deploy", relayRefreshJob, 1500);
+    else connection.unpoll("relay-deploy");
+  }
+  function relayRefreshJob(){
+    if (!relayJobVisible() || !connection.connected || relayRegistering || relaySubmitting || !relayBindJobScope()) return Promise.resolve();
+    if (relayJobFlight) return relayJobFlight;
+    const scope = relayJobScope, generation = connection.generation, operation = relayOperationId;
+    relayJobFlight = (async () => {
+      try {
+        const snapshot = await api(relayJobsPath + (operation ? "?id=" + encodeURIComponent(operation) : ""));
+        if (scope !== relayJobScope || generation !== connection.generation || !connection.connected || !relayJobVisible() || operation !== relayOperationId) return;
+        relayAcceptJob(snapshot);
+      } catch(e) {
+        if (scope !== relayJobScope || generation !== connection.generation || !relayJobVisible() || operation !== relayOperationId) return;
+        if (e.status === 404 || e.status === 410) {
+          relayJob = null; relayJobState = "unknown";
+          relayJobError = "Outcome unknown / reconciliation required. This operation is missing or belongs to an expired gateway generation. It will not be resubmitted.";
+        } else { relayJobState = relayOperationId ? "checking" : "error"; relayJobError = "Status unavailable: " + redactProxyText(e.message); }
+      } finally {
+        relayJobFlight = null; renderRelayJob(); relayJobPolling();
+      }
+    })();
+    return relayJobFlight;
+  }
+  function renderRelayJob(){
+    const labels = {running:"Deployment running",succeeded:"Deployment succeeded",failed:"Deployment failed",
+      outcome_unknown:"Remote outcome unknown — reconcile with provider",registration_failed:"Remote deployment ready; local registration failed"};
+    const status = relayJob?.status;
+    const label = relaySubmitting ? "Submitting once; waiting for acknowledgement…" : relayJobState === "unknown" ? "Deployment outcome unknown"
+      : relayJobState === "checking" ? "Checking deployment outcome — previous status is stale"
+      : relayJobState === "error" ? "Deployment status unavailable"
+      : Object.prototype.hasOwnProperty.call(labels, status) ? labels[status] : relayJobState === "loaded" ? "No deployment in progress" : "Checking deployment status…";
+    const error = relayJobError || relayJob?.error?.message || "";
+    const details = relayJob ? `${relayJob.provider || ''} · ${relayJob.name || ''} · ${relayJob.phase || ''}` : "";
+    const times = relayJob ? [relayJob.started_at ? "Started " + new Date(relayJob.started_at * 1000).toLocaleString() : "",
+      relayJob.finished_at ? "Finished " + new Date(relayJob.finished_at * 1000).toLocaleString() : ""].filter(Boolean).join(" · ") : "";
+    const canClear = relayOperationId && !relaySubmitting && !relayRegistering && (relayJobState === "unknown" || ["succeeded","failed","outcome_unknown","registration_failed"].includes(status));
+    const html = `<div role="status"><b>${esc(label)}</b>${!connection.connected ? ' · offline / stale' : ''}
+      <div class="help">${esc(redactProxyText(details))}</div><div class="help">${esc(times)}</div>
+      ${error ? `<p class="help">${esc(redactProxyText(error))}</p>` : ''}
+      ${relayOperationId ? '<div class="help">Closing this dialog does not cancel backend work. Status checks never repeat the creation request.</div>' : ''}
+      <button class="btn btn-quiet btn-sm" onclick="App.relayRefreshJob()" ${!connection.connected || relaySubmitting || relayRegistering ? 'disabled' : ''}>Check status</button>
+      ${status === 'registration_failed' ? `<button class="btn btn-ghost btn-sm" onclick="App.relayRegisterJob()" ${!connection.connected || relayRegistering ? 'disabled' : ''}>Retry local registration only</button>` : ''}
+      ${canClear ? '<button class="btn btn-quiet btn-sm" onclick="App.relayNewDeployment()">Prepare a new deployment</button>' : ''}</div>`;
+    if (relayJobVisible()) for (const id of ["#relay-job-status", "#relay-modal-job"]) { const el = $(id); if (el) el.innerHTML = html; }
+    const btn = $("#btn-deploy-relay");
+    if (btn) {
+      btn.disabled = !connection.connected || relaySubmitting || relayRegistering || !!relayOperationId || !relayJobGeneration || relayJobState !== "loaded";
+      btn.textContent = relaySubmitting ? "Submitting…" : relayOperationId ? "Review existing operation below" : "Deploy";
+    }
+  }
+  async function relayNewDeployment(){
+    if (!connection.connected || relaySubmitting || relayRegistering || relayJob?.status === "running") return;
+    const generation = connection.generation, id = relayOperationId;
+    if (!id) return;
+    if (!(await confirmDlg("Prepare another deployment?", "This forgets only the displayed operation ID. It does not cancel or delete remote resources. If the outcome is unknown, inspect the provider first to avoid duplicates.", "Prepare new", true))) return;
+    if (!connection.connected || generation !== connection.generation || id !== relayOperationId || relayJob?.status === "running") return;
+    try { sessionStorage.removeItem("gw-relay-deploy:" + relayJobScope); }
+    catch (_) { toast("Cannot clear saved operation; nothing was sent.", "err"); return; }
+    relayOperationId = null; relayJob = null; relayJobState = "loaded"; relayJobError = ""; relayIgnoreTerminal = true;
+    renderRelayJob(); relayJobPolling();
+  }
+  async function relayRegisterJob(){
+    if (!connection.connected || relaySubmitting || relayRegistering || relayJob?.status !== "registration_failed") return;
+    relayRegistering = true; renderRelayJob(); relayJobPolling();
+    const generation = connection.generation, operation = relayOperationId;
+    try {
+      // Let an older deduplicated status read settle before the registration mutation.
+      if (relayJobFlight) await relayJobFlight;
+      if (!connection.connected || generation !== connection.generation || operation !== relayOperationId || relayJob?.status !== "registration_failed") return;
+      const snapshot = await api(relayJobsPath + "/" + encodeURIComponent(operation) + "/register", {method:"POST",body:{}});
+      relayAcceptJob(snapshot);
+    } catch(e) { relayJobState = "checking"; relayJobError = "Registration result not confirmed. Check status: " + redactProxyText(e.message); }
+    finally { relayRegistering = false; renderRelayJob(); relayJobPolling(); }
+  }
   function closeRelayModal(){
+    relayModalRevision++; relayModalType = null;
     const m = $("#relay-modal");
     if (m) m.style.display = "none";
+    const card = $("#relay-modal-card"); if (card) card.replaceChildren(); // discard entered credentials
+    relayJobPolling();
   }
 
   function openRelayModal(type){
+    if (type === "netlify") { toast("New Netlify deployment is unsupported: the bundled template buffers responses and cannot verify SSE streaming. Existing relays are unchanged.", "err"); return; }
+    if (!["cloudflare","vercel","deno","custom"].includes(type)) return;
     const card = $("#relay-modal-card");
     if (!card) return;
+    relayModalType = type; relayModalRevision++;
     let html = "";
     if (type === "cloudflare") {
       html = `
@@ -3134,74 +3348,79 @@ api_key: ${esc(s.admin_key)}   # or any client key</p>
         </div>
       `;
     }
-    card.innerHTML = html;
+    card.innerHTML = html + (type !== "custom" ? '<div id="relay-modal-job" style="margin-top:12px"></div>' : '');
     $("#relay-modal").style.display = "flex";
+    if (type !== "custom") { renderRelayJob(); relayRefreshJob(); }
   }
 
   async function relayDeploy(type){
-    const btn = $("#btn-deploy-relay");
-    if (btn) { btn.disabled = true; btn.textContent = "Deploying… (may take ~1 min)"; }
-    const params = { type };
-    if (type === "cloudflare") {
-      params.accountId = ($("#rf-cf-account")||{}).value;
-      params.apiToken = ($("#rf-cf-token")||{}).value;
-      params.projectName = ($("#rf-cf-name")||{}).value;
-    } else if (type === "vercel") {
-      params.vercelToken = ($("#rf-vc-token")||{}).value;
-      params.projectName = ($("#rf-vc-name")||{}).value;
-    } else if (type === "deno") {
-      params.denoToken = ($("#rf-dn-token")||{}).value;
-      params.orgDomain = ($("#rf-dn-org")||{}).value;
-      params.projectName = ($("#rf-dn-name")||{}).value;
-    } else if (type === "netlify") {
-      params.netlifyToken = ($("#rf-nl-token")||{}).value;
-      params.projectName = ($("#rf-nl-name")||{}).value;
-    }
+    if (!["cloudflare","vercel","deno"].includes(type)) { toast("This provider's new deployment template is unsupported / buffered.", "err"); return; }
+    if (!connection.connected || relaySubmitting || relayRegistering || relayOperationId || relayModalType !== type) return;
+    relaySubmitting = true; renderRelayJob(); relayJobPolling();
+    const generation = connection.generation, modalRevision = relayModalRevision;
+    const params = {type};
+    let submitted = false;
     try {
-      const res = await api("/admin/dash/relays/deploy", {
-        method: "POST",
-        body: JSON.stringify(params)
-      });
-      if (res && res.relay) {
-        toast(`Relay deployed successfully: ${res.relay.name}`, "ok");
-        closeRelayModal();
-        loadRelays();
-      } else {
-        toast("Deploy finished", "ok");
-        closeRelayModal();
-        loadRelays();
-      }
+      // Read generation and admission before capturing credentials. Nothing is queued offline.
+      if (relayJobFlight) await relayJobFlight;
+      if (!relayBindJobScope() || relayOperationId) return;
+      const snapshot = await api(relayJobsPath);
+      if (!connection.connected || generation !== connection.generation || modalRevision !== relayModalRevision) return;
+      if (!snapshot || typeof snapshot.generation !== "string") throw new Error("Could not verify deployment admission");
+      relayJobGeneration = snapshot.generation;
+      if (snapshot.active_id) { relayAcceptJob(snapshot); return; }
+      if (typeof crypto?.randomUUID !== "function") throw new Error("Secure operation IDs unavailable; nothing was sent");
+      const field = id => $(id)?.value || "";
+      if (type === "cloudflare") { params.accountId = field("#rf-cf-account"); params.apiToken = field("#rf-cf-token"); params.projectName = field("#rf-cf-name"); }
+      if (type === "vercel") { params.vercelToken = field("#rf-vc-token"); params.projectName = field("#rf-vc-name"); }
+      if (type === "deno") { params.denoToken = field("#rf-dn-token"); params.orgDomain = field("#rf-dn-org"); params.projectName = field("#rf-dn-name"); }
+      params.operation_id = relayJobGeneration + ":" + crypto.randomUUID();
+      relayStoreOperation(params.operation_id);
+      relayJob = null; relayJobState = "checking"; relayJobError = "";
+      submitted = true;
+      const accepted = await api(relayJobsPath, {method:"POST",body:params});
+      relayAcceptJob(accepted);
     } catch(e) {
-      toast(`Deploy failed: ${e.message}`, "err");
-      if (btn) { btn.disabled = false; btn.textContent = "Deploy"; }
+      relayJobState = submitted ? "checking" : "error";
+      relayJobError = submitted ? "Start acknowledgement not confirmed. Checking the saved operation; no creation retry. " : "Nothing was submitted. ";
+      relayJobError += redactProxyText(e.message);
+      if (e.status === 409) {
+        relayJobError = "Another deployment is active or this ID conflicts. No retry was sent; reconcile the existing operation.";
+        if (e.code === "deployment_active" && typeof e.active_id === "string" && e.active_id !== relayOperationId) {
+          try { relayStoreOperation(e.active_id); relayJob = null; }
+          catch (_) { relayJobState = "unknown"; }
+          toast("Start rejected: another deployment is active. Observing its status only.", "err");
+        }
+      }
+      if (submitted && (e.status === 404 || e.status === 410)) relayJobState = "unknown";
+    } finally {
+      for (const key of Object.keys(params)) delete params[key];
+      if (submitted && modalRevision === relayModalRevision) for (const id of ["#rf-cf-token","#rf-vc-token","#rf-dn-token","#rf-nl-token"]) { const el = $(id); if (el) el.value = ""; }
+      relaySubmitting = false; renderRelayJob(); relayJobPolling();
     }
   }
 
   async function relayAddCustom(){
-    const name = ($("#rf-cs-name")||{}).value;
-    const url = ($("#rf-cs-url")||{}).value;
+    const name = $("#rf-cs-name")?.value;
+    const url = $("#rf-cs-url")?.value;
     if (!url) { toast("Relay URL is required", "err"); return; }
-    try {
-      await api("/admin/dash/relays/add", {
-        method: "POST",
-        body: JSON.stringify({ name, url, type: "custom" })
-      });
-      toast("Relay added", "ok");
-      closeRelayModal();
-      loadRelays();
-    } catch(e) {
-      toast(`Failed to add relay: ${e.message}`, "err");
-    }
+    await relayMutation("/admin/dash/relays/add", {method:"POST",body:{name,url,type:"custom"}}, () => {
+      toast("Relay added", "ok"); closeRelayModal();
+    });
   }
 
   async function renderProxyTab(v){
     let px;
+    const generation = connection.generation, revision = pxActionRevision;
     try { px = await api("/admin/dash/generator/proxies"); }
     catch (e) {
+      if (!serverUp || curTab !== "proxy" || generation !== connection.generation) return; // retain optional tool state; do not remount on reconnect
       v.innerHTML = genSetupCard(e.message);
       pxMounted = false;
       return;
     }
+    if (curTab !== "proxy" || generation !== connection.generation || !connection.connected) return;
+    if (revision === pxActionRevision && !pxActionBusy) pxCheckerRunning = !!px.running;
     pxAutoRefresh();
     const ps = px.stats || {};
     pxCache = ps;
@@ -3211,7 +3430,7 @@ api_key: ${esc(s.admin_key)}   # or any client key</p>
     const probed = ps.probed ?? 0, total = ps.total ?? 0;
     const pct = total > 0 ? Math.round(probed / total * 100) : 0;
     const pxLinesHtml = (px.lines || []).slice(-40).map(l =>
-      `<div class="mono" style="font-size:11px;color:var(--faint)">${esc(l)}</div>`).join("");
+      `<div class="mono" style="font-size:11px;color:var(--faint)">${esc(redactProxyText(l))}</div>`).join("");
     const shell = `
       <div id="px-container">
         <div id="px-health"></div>
@@ -3259,11 +3478,11 @@ api_key: ${esc(s.admin_key)}   # or any client key</p>
               title="re-try timeouts/resets once: recovers roughly 30% more proxies">
               <input type="checkbox" id="px-retry" checked> second chance</label>
             <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
-              <button class="btn btn-pri btn-sm" id="px-btn-all" onclick="App.proxyRun('all')"
+              <button class="btn btn-pri btn-sm" id="px-btn-all" data-proxy-work onclick="App.proxyRun('all')"
                 ${px.running ? "disabled" : ""}>⤓ Scrape + Verify</button>
-              <button class="btn btn-ghost btn-sm" id="px-btn-verify" onclick="App.proxyRun('verify')"
+              <button class="btn btn-ghost btn-sm" id="px-btn-verify" data-proxy-work onclick="App.proxyRun('verify')"
                 ${px.running ? "disabled" : ""}>Verify raw</button>
-              <button class="btn btn-ghost btn-sm" id="px-btn-recheck" onclick="App.proxyRun('recheck')"
+              <button class="btn btn-ghost btn-sm" id="px-btn-recheck" data-proxy-work onclick="App.proxyRun('recheck')"
                 ${px.running ? "disabled" : ""}>↻ Recheck pool</button>
               <button class="btn btn-ghost btn-sm" id="px-btn-stop" onclick="App.proxyStop()"
                 style="display:${px.running?'inline-block':'none'}">⏹ Stop</button>
@@ -3272,7 +3491,7 @@ api_key: ${esc(s.admin_key)}   # or any client key</p>
               <label class="help" style="display:flex;gap:6px;align-items:center;cursor:pointer;font-weight:600;color:var(--fg)">
                 <input type="checkbox" id="px-auto-verify" onchange="App.pxAutoVerify(this.checked)"> Auto re-verify
               </label>
-              <select id="px-auto-interval" style="background:var(--field);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:12px">
+              <select id="px-auto-interval" onchange="App.pxAutoVerify(document.getElementById('px-auto-verify').checked)" style="background:var(--field);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:12px">
                 <option value="30">every 30 min</option>
                 <option value="45" selected>every 45 min</option>
                 <option value="90">every 90 min</option>
@@ -3288,7 +3507,7 @@ api_key: ${esc(s.admin_key)}   # or any client key</p>
             ${ps.prefilter_phase ? `<span style="font-size:11.5px;color:var(--accent-soft,#8ea7ff)">TCP prefilter ${ps.prefilter_phase.done}/${ps.prefilter_phase.total} (${ps.prefilter_phase.open} open)</span>` : ""}
           </div>
           <div style="margin-top:10px;color:var(--muted);font-size:12px" id="px-status-line">
-            ${px.running ? "checking… " + esc(px.action||"") + " (" + (px.elapsed||0) + "s)" : (px.state==='exited'?'✓ finished':(px.state==='failed'?'✗ failed':'idle'))}</div>
+            ${px.running ? "checking… " + esc(px.action||"") + " (" + (px.elapsed||0) + "s)" : (px.state==='exited'?'Process exited — inspect log for outcome':(px.state==='failed'?'Failed':px.state==='cancelled'?'Cancelled':'idle'))}</div>
           <div id="px-reasons" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">${pxReasonsHtml(ps)}</div>
           <div class="help" style="margin-top:6px;color:var(--faint);font-size:11px">
             qualification: page loads with the z.ai app shell + Aliyun captcha host reachable + valid TLS (anti-MITM)
@@ -3302,13 +3521,13 @@ api_key: ${esc(s.admin_key)}   # or any client key</p>
         <div class="card">
           <h2>Pool maintenance</h2>
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-            <button class="btn btn-ghost btn-sm" onclick="App.proxyMaintain('prune')"
+            <button class="btn btn-ghost btn-sm" data-proxy-work onclick="App.proxyMaintain('prune')"
               title="drop proxies that stayed unhealthy for two weeks">✂ Prune unhealthy</button>
-            <button class="btn btn-ghost btn-sm" onclick="App.proxyMaintain('clear-bad')"
+            <button class="btn btn-ghost btn-sm" data-proxy-work onclick="App.proxyMaintain('clear-bad')"
               title="forget the MITM / TLS blacklist">Clear bad list</button>
-            <button class="btn btn-ghost btn-sm" onclick="App.proxyMaintain('clear-used')"
+            <button class="btn btn-ghost btn-sm" data-proxy-work onclick="App.proxyMaintain('clear-used')"
               title="allow previously used proxies to be picked again">Clear used list</button>
-            <button class="btn btn-ghost btn-sm" onclick="App.proxyMaintain('clear-dead')"
+            <button class="btn btn-ghost btn-sm" data-proxy-work onclick="App.proxyMaintain('clear-dead')"
               title="re-check hosts that recently failed">Clear dead cache</button>
             <span id="px-maint-msg" style="color:var(--muted);font-size:12px"></span>
           </div>
@@ -3322,7 +3541,7 @@ api_key: ${esc(s.admin_key)}   # or any client key</p>
                 ${ps.countries_known ?? 0} of ${ps.pool_json || 0} proxies have a country
               </div>
             </div>
-            <button class="btn btn-ghost btn-sm" onclick="App.proxyCountries()" ${px.running ? "disabled" : ""}
+            <button class="btn btn-ghost btn-sm" data-proxy-work onclick="App.proxyCountries()" ${px.running ? "disabled" : ""}
               title="asks free public lookup sites (ip-api.com, geojs.io) for the country of each proxy IP; nothing is downloaded">🌍 Look up countries</button>
             <span class="help" style="margin:0;font-size:11px">online, nothing to download; new working proxies are looked up automatically</span>
             <span id="px-countries-msg" style="color:var(--muted);font-size:12px"></span>
@@ -3341,26 +3560,26 @@ api_key: ${esc(s.admin_key)}   # or any client key</p>
               <span style="font-size:20px;line-height:1">⚠️</span>
               <div>
                 <b style="color:var(--warn)">Important Notice:</b> ZCode blocks standard <b>GLM-5.3</b> from direct residential/datacenter IPs with <code>HTTP 405 (unusual activity)</code>.
-                You <b>must</b> deploy and route through an edge relay (Cloudflare, Vercel, Deno, or Netlify) to use GLM-5.3 without errors.
+                An edge relay may be required for this model. A forwarding probe does not establish model access or SSE compatibility. New Netlify deployments are gated below.
               </div>
             </div>
           </div>
 
           <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap;padding:12px 14px;background:var(--field);border:1px solid var(--border);border-radius:8px;margin-bottom:14px">
             <label class="help" style="display:flex;gap:6px;align-items:center;cursor:pointer;font-weight:600;color:var(--fg);margin:0">
-              <input type="checkbox" id="relay-enabled" onchange="App.saveRelayOptions()"> Enable Edge Relay
+              <input type="checkbox" id="relay-enabled" onchange="App.saveRelayOptions('enabled')"> Enable Edge Relay
             </label>
             <div style="height:20px;width:1px;background:var(--border)"></div>
             <span style="font-size:12px;color:var(--muted)">Route models through relay:</span>
             <label class="help" style="display:flex;gap:6px;align-items:center;cursor:pointer;margin:0">
-              <input type="checkbox" id="relay-mod-53" onchange="App.saveRelayOptions()"> <b>GLM-5.3</b> <span class="badge" style="background:var(--elev);color:var(--ok)">Recommended</span>
+              <input type="checkbox" id="relay-mod-53" onchange="App.saveRelayOptions('models')"> <b>GLM-5.3</b> <span class="badge" style="background:var(--elev);color:var(--ok)">Recommended</span>
             </label>
             <label class="help" style="display:flex;gap:6px;align-items:center;cursor:pointer;margin:0">
-              <input type="checkbox" id="relay-mod-flash" onchange="App.saveRelayOptions()"> GLM-5.3-Flash
+              <input type="checkbox" id="relay-mod-flash" onchange="App.saveRelayOptions('models')"> GLM-5.3-Flash
             </label>
             <div style="height:20px;width:1px;background:var(--border)"></div>
             <span style="font-size:12px;color:var(--muted)">Rotation:</span>
-            <select id="relay-strategy" onchange="App.saveRelayOptions()" style="background:var(--field);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:12.5px">
+            <select id="relay-strategy" onchange="App.saveRelayOptions('strategy')" style="background:var(--field);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:12.5px">
               <option value="single">Single (active relay only)</option>
               <option value="round_robin">Round Robin</option>
               <option value="random">Random</option>
@@ -3369,15 +3588,17 @@ api_key: ${esc(s.admin_key)}   # or any client key</p>
           </div>
 
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
-            <button class="btn btn-ghost btn-sm" onclick="App.openRelayModal('cloudflare')"><span style="color:#f38020">⚡</span> Deploy Cloudflare Relay</button>
-            <button class="btn btn-ghost btn-sm" onclick="App.openRelayModal('vercel')">▲ Deploy Vercel Relay</button>
-            <button class="btn btn-ghost btn-sm" onclick="App.openRelayModal('deno')">🦕 Deploy Deno Relay</button>
-            <button class="btn btn-ghost btn-sm" onclick="App.openRelayModal('netlify')"><span style="color:#00ad9f">◆</span> Deploy Netlify Relay</button>
-            <button class="btn btn-quiet btn-sm" onclick="App.openRelayModal('custom')">＋ Add Existing URL</button>
+            <button class="btn btn-ghost btn-sm" data-relay-write onclick="App.openRelayModal('cloudflare')"><span style="color:#f38020">⚡</span> Deploy Cloudflare Relay</button>
+            <button class="btn btn-ghost btn-sm" data-relay-write onclick="App.openRelayModal('vercel')">▲ Deploy Vercel Relay</button>
+            <button class="btn btn-ghost btn-sm" data-relay-write onclick="App.openRelayModal('deno')">🦕 Deploy Deno Relay</button>
+            <button class="btn btn-ghost btn-sm" disabled title="Unsupported: bundled Netlify template buffers responses; SSE streaming is unverified">Netlify deployment unavailable</button>
+            <button class="btn btn-quiet btn-sm" data-relay-write onclick="App.openRelayModal('custom')">＋ Add Existing URL</button>
             <div class="grow"></div>
             <button class="btn btn-quiet btn-sm" onclick="App.loadRelays()">↻ Refresh</button>
           </div>
 
+          <p class="help">New Netlify deployment is unsupported: the bundled template buffers responses. Existing Netlify relays remain selectable; model and SSE behavior are not verified.</p>
+          <div id="relay-job-status" style="margin-bottom:12px"></div>
           <div id="relay-list" style="overflow-x:auto"></div>
         </div>
         <div class="card">
@@ -3430,7 +3651,7 @@ api_key: ${esc(s.admin_key)}   # or any client key</p>
       pxMounted = true;
       genLoadSources();
       proxyYield();
-      loadRelays();
+      loadRelays(); relayRefreshJob(); renderRelayJob(); pxAutoPaint(); proxyControls();
       // proxy pool health card rides along with the tab's first mount and
       // refreshes with the tab's own 2s poll only on remount (it reads the
       // ledger file — no need to re-read it every 2s)
@@ -3468,7 +3689,7 @@ api_key: ${esc(s.admin_key)}   # or any client key</p>
     const stEl = $("#px-status-line");
     if (stEl) stEl.innerHTML = px.running
       ? "checking… " + esc(px.action||"") + " (" + (px.elapsed||0) + "s)"
-      : (px.state === 'exited' ? '✓ finished' : (px.state === 'failed' ? '✗ failed' : 'idle'));
+      : (px.state === 'exited' ? 'Process exited — inspect log for outcome' : (px.state === 'failed' ? 'Failed' : px.state === 'cancelled' ? 'Cancelled' : 'idle'));
     const pxBox = $("#px-lines");
     if (pxBox && pxBox.innerHTML !== pxLinesHtml) {
       const atBottom = pxBox.scrollHeight - pxBox.scrollTop <= pxBox.clientHeight + 20;
@@ -3480,6 +3701,7 @@ api_key: ${esc(s.admin_key)}   # or any client key</p>
       const ph = $("#px-health"); if (ph) renderProxyHealth(ph);
     }
     pxWasRunning = !!px.running;
+    proxyControls(); renderRelayJob();
   }
   function pxClearLog(){
     const box = $("#px-lines"); if (box) box.innerHTML = "";
@@ -3496,7 +3718,7 @@ api_key: ${esc(s.admin_key)}   # or any client key</p>
       </div>
       <ol>
         <li>On the <a href="#" onclick="App.tab('accounts');return false">Accounts</a>
-            tab, click <kbd>🔑 Login with Zcode</kbd>. The browser approval link appears.</li>
+            tab, click <kbd>Sign in with ZCode</kbd>. The browser approval link appears.</li>
         <li>Click <kbd>Open login page</kbd>, sign in to your Zcode account and approve access.</li>
         <li>The account is registered, snapshotted into
             <span class="mono">accounts\\</span>, and joins the pool automatically.</li>
@@ -3808,7 +4030,7 @@ api_key: ${esc(s.admin_key)}   # or any client key</p>
       const allUnknown = cEntries.length > 0 && cEntries.every(([c]) => c === "??");
       const countryRows = allUnknown
         ? `<div class="help" style="margin:4px 0">No country known yet.
-            <button class="btn btn-ghost btn-sm" onclick="App.proxyCountries()" style="margin-left:6px">🌍 Look up countries</button>
+            <button class="btn btn-ghost btn-sm" data-proxy-work onclick="App.proxyCountries()" style="margin-left:6px">🌍 Look up countries</button>
             <span style="color:var(--faint)">online, takes about a minute</span></div>`
         : (cEntries.slice(0,10).map(([c,n]) => {
             const pct = Math.max(1, Math.round(n/(total||1)*100));
@@ -3820,9 +4042,9 @@ api_key: ${esc(s.admin_key)}   # or any client key</p>
           }).join("") || '<div style="color:var(--faint);font-size:12px">no country data</div>');
       const rows = (h.proxies||[]).slice(0,100).map(p => {
         const st = p.status || (p.ok ? "working" : "new");
-        const why = p.status === "failing" && p.reason ? ` - ${p.reason}` : "";
+        const why = p.status === "failing" && p.reason ? ` - ${redactProxyText(p.reason)}` : "";
         return `<tr><td title="${esc(label[st] || st)}${esc(why)}"><span style="color:${dot[st] || "var(--faint)"}">●</span></td>
-          <td class="mono" style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(p.url)}">${esc(p.url)}</td>
+          <td class="mono" style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(redactProxyText(p.url))}">${esc(redactProxyText(p.url))}</td>
           <td class="mono">${esc(p.country)}</td>
           <td style="text-align:right">${p.latency ? p.latency + "s" : "-"}</td>
           <td style="text-align:right;color:var(--muted)" title="checks run / failures">${p.checks || 0}<span style="color:var(--faint)"> / </span>${p.fails || 0}</td>
@@ -3853,74 +4075,146 @@ api_key: ${esc(s.admin_key)}   # or any client key</p>
         </div>`;
     } catch (e) {
       container.innerHTML = `<div class="card"><h2>Proxy pool</h2>
-        <p style="color:var(--faint);font-size:12.5px">${esc(e.message)}</p></div>`;
+        <p style="color:var(--faint);font-size:12.5px">${esc(redactProxyText(e.message))}</p></div>`;
     }
   }
 
   /* ------------ tab switching + polling ------------ */
-  const RENDER = {accounts:renderAccounts, generator:renderGenerator, proxy:renderProxyTab, models:renderModels, server:renderServer,
+  async function renderOverview(v){
+    await StudioOverview.render(v, {api, escape:esc, connected:() => serverUp,
+      go:(name, query) => {
+        if (name === "accounts" && query) tab(name, {accountFilter:query === "dead" || query === "exhausted" ? "attention" : "all",accountQuery:query});
+        else if (name === "models" && query) tab(name, {modelFilter:"all",favoritesOnly:false,modelQuery:query});
+        else tab(name);
+      }});
+  }
+  const PAGE_INFO = {
+    overview:["Overview", "Your local gateway, at a glance."],
+    accounts:["Accounts", "Manage access, plans and availability."],
+    models:["Models", "Find an available model for your next request."],
+    usage:["Usage history", "Requests and token usage over time."],
+    analytics:["Analytics", "Understand traffic, latency and errors."],
+    stats:["Statistics", "A quick summary of gateway activity."],
+    logs:["Logs", "Inspect events without losing your place."],
+    generator:["Generator", "Optional account tools and saved configuration."],
+    proxy:["Proxy tools", "Manage your configured network tools."],
+    server:["Connection", "Connect your coding tools to the local API."],
+    settings:["Settings", "Configure the gateway. Changes apply after restart."],
+    guide:["Help & setup", "Get connected and understand the available tools."]
+  };
+  function toggleNavigation(){
+    const opened = document.body.classList.toggle("nav-open");
+    $("#nav-toggle").setAttribute("aria-expanded", String(opened));
+  }
+  const RENDER = {overview:renderOverview, accounts:renderAccounts, generator:renderGenerator, proxy:renderProxyTab, models:renderModels, server:renderServer,
                   settings:renderSettings, stats:renderStats, logs:renderLogs,
                   usage:renderUsage, analytics:renderAnalytics, guide:renderGuide};
 
-  function tab(name){
-    if (curTab === "generator" || name !== "generator") {
-      genMounted = false;
+  function tab(name, intent = null, options = {}){
+    if (!RENDER[name]) name = "overview";
+    if (curTab === "accounts" && $("#acct-q")) cache.acctQ = $("#acct-q").value;
+    if (curTab === "models" && $("#mdl-q")) cache.mdlQ = $("#mdl-q").value;
+    if (intent) {
+      const {accountFilter,modelFilter,favoritesOnly} = intent;
+      preferences.update({accountFilter,modelFilter,favoritesOnly});
+      if (typeof intent.accountQuery === "string") cache.acctQ = intent.accountQuery;
+      if (typeof intent.modelQuery === "string") cache.mdlQ = intent.modelQuery;
+      if (name === curTab && name === "accounts" && $("#acct-q")) $("#acct-q").value = cache.acctQ;
+      if (name === curTab && name === "models" && $("#mdl-q")) $("#mdl-q").value = cache.mdlQ;
     }
-    if (curTab === "proxy" || name !== "proxy") {
-      pxMounted = false;
+    if (drawer && drawer.isOpen()) closeAccountDetails();
+    if (curTab !== name) {
+      relayRevision++; pxAutoRevision++;
+      relayLoadState = relayData ? "stale" : "loading";
+      genMounted = false; pxMounted = false;
+      disconnectedEdits = false;
     }
     curTab = name;
+    relayJobPolling();
+    sessionStorage.setItem("gw-selected-tab", name);
+    preferences.update({selectedTab:name});
     document.querySelectorAll(".nav-btn").forEach(b =>
       b.classList.toggle("on", b.dataset.tab === name));
-    $("#tab-title").textContent = name[0].toUpperCase() + name.slice(1);
-    refresh();
+    $("#tab-title").textContent = PAGE_INFO[name][0];
+    $("#tab-description").textContent = PAGE_INFO[name][1];
+    document.body.classList.remove("nav-open");
+    $("#nav-toggle").setAttribute("aria-expanded", "false");
+    const selected = document.querySelector(`.nav-btn[data-tab="${name}"]`);
+    const group = selected && selected.closest("details");
+    if (group) group.open = true;
+    document.querySelectorAll(".nav-btn").forEach(b => b.setAttribute("aria-current", b.dataset.tab === name ? "page" : "false"));
+    if (options.localOnly || !serverUp) {
+      pendingTab = false; // Do not queue a fetch behind an earlier tab's request.
+      connection.unpoll("tab");
+      if (name === "models" && cache.models) renderModelsData($("#view"),cache.models);
+      else if (name === "accounts" && cache.accounts) renderAccountsData($("#view"));
+      else $("#view").innerHTML = `<div class="card"><h3>${esc(PAGE_INFO[name][0])}</h3><p>${serverUp ? "Use Refresh to load this page. Command navigation performs no network request." : "Gateway disconnected. This page has no cached view; reconnect to load it."}</p><button class="btn btn-quiet" onclick="App.refresh()" ${serverUp ? "" : "disabled"}>Refresh</button></div>`;
+      return;
+    }
+    if (refreshFlight) pendingTab = true;
+    else refresh();
     restartTimer();
   }
   function refresh(){
-    const v = $("#view");
+    if (!serverUp || refreshFlight) return refreshFlight;
+    // Reconnect is never permission to replace edits or remount optional tools.
+    if (disconnectedEdits || document.querySelector("#view .set-row.changed")) return;
+    const v = $("#view"), renderingTab = curTab;
     if (curTab === "accounts") { const q = $("#acct-q"); if (q) cache.acctQ = q.value; }
     if (curTab === "models")   { const q = $("#mdl-q");  if (q) cache.mdlQ  = q.value; }
-    // renderGuide is synchronous (returns undefined) — calling .catch on it
-    // threw every tick and skipped restartTimer(), leaving the previous
-    // tab's interval running forever.
-    const out = RENDER[curTab](v);
-    if (out && typeof out.catch === "function") {
-      out.catch(e => { v.innerHTML =
-        `<div class="card"><div class="empty"><h3>Could not load</h3><p>${esc(e.message)}</p></div></div>`; });
-    }
-    paintChips();
+    refreshFlight = Promise.resolve().then(() => RENDER[renderingTab](v)).catch(e => {
+      // Network/auth transitions retain the mounted view and dirty form values.
+      if (serverUp && curTab === renderingTab) toast("Could not load: " + e.message, "err");
+    }).finally(() => {
+      refreshFlight = null;
+      if (pendingTab) { pendingTab = false; refresh(); }
+    });
+    return refreshFlight;
   }
   function restartTimer(){
-    clearInterval(timer);
-    // live tabs poll; static tabs don't
-    const live = {accounts:4000, generator:3000, proxy:2000, models:6000, logs:3000, stats:8000, usage:15000, analytics:15000}[curTab];
-    if (live) timer = setInterval(() => refresh(), live);
+    const live = {overview:15000, accounts:4000, generator:3000, proxy:2000, models:6000, logs:3000, stats:8000, usage:15000, analytics:15000}[curTab];
+    if (live) connection.poll("tab", refresh, live);
+    else connection.unpoll("tab");
   }
 
   /* ------------ boot ------------ */
-  async function boot(){
-    paintChips();
-    tab("accounts");
-    setupFirstRunCheck();
-    try {
-      const s = await api("/admin/dash/server");
-      $("#foot-ver").textContent = "v" + s.version + " · " + s.host + ":" + s.port;
-    } catch (e) {}
-    setInterval(paintChips, 10000);   // chips poll independently of tab polling
-    setInterval(pollNotify, 15000);   // bell polls on every tab
-    pollNotify();
-  }
-  async function start(){
-    if (!key) {
-      // maybe the key was never needed (single-user local default)? probe once
-      try { await api("/admin/dash/server"); }
-      catch (e) { showLogin(); return; }
+  function boot(){
+    bindUIPreferences(); initUsability();
+    if (bootFlight) return bootFlight;
+    if (booted) {
+      // No setup probes or optional manager initialization on reconnect.
+      restartTimer();
+      if (relayJobVisible()) relayRefreshJob();
+      if (curTab === "proxy") { loadRelays(); pxAutoRefresh(); proxyControls(); }
+      return Promise.resolve();
     }
-    try { await api("/admin/dash/server"); } catch (e) { showLogin(); return; }
-    hideLogin(); boot();
+    booted = true;
+    bootFlight = (async () => {
+      tab(curTab);
+      await refreshFlight;
+      // First-run setup remains explicit on Linux: reconnect never checks/install tools.
+      try {
+        const s = await api("/admin/dash/server");
+        $("#foot-ver").textContent = "Linux " + s.version;
+        const safeHost = s.host === "0.0.0.0" || s.host === "::" ? "127.0.0.1" : s.host;
+        const host = safeHost.includes(":") ? "[" + safeHost + "]" : safeHost;
+        cache.endpoint = "http://" + host + ":" + s.port + "/v1";
+        $("#service-endpoint").textContent = cache.endpoint;
+        if (palette) palette.update();
+      } catch (_) {}
+      connection.poll("chips", paintChips, 10000, true);
+      connection.poll("notifications", pollNotify, 15000, true);
+    })().finally(() => { bootFlight = null; });
+    return bootFlight;
+  }
+  function start(){
+    if (trusted) sessionStorage.setItem("gw-admin-key", key);
+    connection.start();
   }
 
-  return {start, login, tab, refresh, renderAccounts, renderGenerator, renderProxyTab, renderModels, renderLogs,
+  return {setAccountFilter, setModelFilter, toggleFavoritesOnly, toggleFavorite, copyModel, clearAccountFilters, clearModelFilters,
+          resetUIPreferences, openAccountDetails, closeAccountDetails, openCommands,
+          start, login, reconnect, autostartChange, toggleNavigation, tab, refresh, renderAccounts, renderGenerator, renderProxyTab, renderModels, renderLogs,
           renderAnalytics, setAnalyticsHours, toggleNotify, clearNotify, pollNotify, logSearchDebounce,
           mailRender, mailAddDomain, mailRemoveDomain, mailRemoveOne, mailSelDomain, mailSave, mailTest, mailAutoSave, mailDeploy, mailRoutingDone, pxClearLog,
           genLocate, genCaptchaChanged, genCaptchaGuard, genStrategyVisibility, genAiHint,
@@ -3933,6 +4227,7 @@ api_key: ${esc(s.admin_key)}   # or any client key</p>
           genClearWorkers, genRemove, claimStop, claimRemove, acctClaim, acctClaimStart, acctClaim500, claimAllPending, purgeDrained,
           setupOpen, setupClose, setupInstall,
           openRelayModal, closeRelayModal, relayDeploy, relayAddCustom, loadRelays,
+          relayRefreshJob, relayRegisterJob, relayNewDeployment,
           saveRelayOptions, setActiveRelay, testRelay, deleteRelay, deleteRelays, relayToggle, relayToggleAll, pxHealthRefresh,
           settingsFilter, settingsReset, settingsJump};
 })();
@@ -3963,6 +4258,10 @@ window.addEventListener("change", e => {
   if (el && el.dataset && el.dataset.act === "mailSelDomain") App.mailSelDomain(el.dataset.id);
   else if (el && el.dataset && el.dataset.act === "relaySel") App.relayToggle(el.dataset.id, el.checked);
   else if (el && el.dataset && el.dataset.act === "relaySelAll") App.relayToggleAll(el.checked);
+});
+window.addEventListener("input", e => {
+  if (e.target.closest("#view") && e.target.matches("input:not([type=search]),select,textarea"))
+    e.target.dataset.gwDirty = "1";
 });
 window.addEventListener("DOMContentLoaded", App.start);
 </script>

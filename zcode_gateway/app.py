@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from uuid import uuid4
@@ -43,128 +45,251 @@ def setup_logging(level: str = "INFO") -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     cfg: Config = app.state.cfg
-    cfg.ensure_dirs()
-
-    store = Store(cfg.store.sqlite_path)
-    capture = JsonlCapture(cfg.logging.capture_dir, enabled=cfg.logging.capture)
-    registry = Registry(
-        aliases=cfg.models.aliases,
-        default=cfg.models.default,
-        default_anthropic=cfg.models.default_anthropic,
-        # probe_unknown intentionally not forwarded: probing unknown ids
-        # against a plan-gated upstream burns quota for no benefit; the
-        # registry no longer implements it and the config field is inert.
-    )
-    catalog = ModelCatalog(cfg.upstream.base_url, registry)
-
-    try:
-        accounts = load_accounts(cfg.accounts)
-    except Exception as exc:
-        log.warning("could not load accounts from %s: %s", cfg.accounts.source, exc)
-        accounts = []
-
-    from .relay_manager import RelayManager
-    relays_data_dir = (Path(cfg.accounts.dir).resolve().parent / "generator-data") if cfg.accounts.dir else Path("./generator-data")
-    relay_manager = RelayManager(data_dir=relays_data_dir)
-    # relay health loop: background ping every 5 minutes; failures feed the
-    # rotation cooldown and the dashboard health column
-    try:
-        relay_manager.start_health_loop(300)
-    except Exception:
-        log.warning("relay health loop failed to start", exc_info=True)
-
-    pool = PoolManager(cfg.pool, accounts)
-    # persist per-model parks (UNUSUAL_ACTIVITY / GEO_BLOCKED / caps) next to
-    # the sqlite store so a restart doesn't forget and re-burn every account
-    try:
-        caps_file = Path(cfg.store.sqlite_path).resolve().parent / "model-caps.json"
-        pool.set_caps_path(caps_file)
-        pool.load_caps()
-    except Exception:
-        log.warning("model-cap persistence unavailable", exc_info=True)
-    tokens = TokenManager(cfg, pool)
-    client = UpstreamClient(cfg.upstream, relay_manager=relay_manager,
-                            pacing=cfg.models.pacing)
-    service = ChatService(cfg, pool, tokens, client, registry, store, capture)
-
-    # feed the dashboard's log view: one ring-buffer handler on the package log
-    log_buffer = LogBuffer(capacity=1000)
+    # Rollback covers acquisition as well as yield: a failed constructor must
+    # not strand SQLite, a relay thread or an already-open upstream client.
+    resources = []
+    tasks = []
+    relay_manager = None
     pkg_log = logging.getLogger("zcode_gateway")
-    pkg_log.addHandler(log_buffer)
-
-    app.state.app_state = AppState(
-        cfg=cfg, pool=pool, tokens=tokens, client=client,
-        registry=registry, store=store, capture=capture, service=service,
-        limiter=RateLimiter(),
-        catalog=catalog,
-        relay_manager=relay_manager,
-    )
-    app.state.app_state.log_buffer = log_buffer
-    # pool + relay events (drained, DEAD, expiring, cooled) feed the bell
-    pool.attach_notifications(app.state.app_state.notifications)
-    relay_manager._notify = app.state.app_state.notifications
-
-    # release feed: one GitHub call on startup, then every interval; the
-    # dashboard polls this cache, never GitHub directly
-    from .updater import UpdateChecker
-    update_repo = cfg.update.repo
-    if update_repo in getattr(cfg.update, "legacy_repos", ()):
-        # config written before the repo rename: follow the current feed so
-        # existing installs receive updates without a manual config edit
-        update_repo = "B3hnamR/AutoZcoder"
-    updater = UpdateChecker(update_repo, __version__,
-                            enabled=cfg.update.enabled,
-                            interval_hours=cfg.update.interval_hours)
-    app.state.app_state.updater = updater
-
-    async def update_loop() -> None:
-        # first check is deferred: startup must never block on GitHub, and
-        # short-lived apps (tests, CLI runs) should not phone home at all
-        await asyncio.sleep(min(20.0, updater.interval_s))
-        while True:
-            try:
-                await updater.check()
-            except Exception:
-                log.exception("update check iteration failed")
-            await asyncio.sleep(updater.interval_s)
-
-    tasks = [
-        asyncio.create_task(tokens.refresh_loop(), name="token-refresh"),
-        asyncio.create_task(update_loop(), name="update-check"),
-    ]
-    if cfg.pool.balance_poll_seconds > 0:
-        tasks.append(asyncio.create_task(tokens.balance_loop(), name="balance-poll"))
-
-    log.info("zcode gateway %s up — %d account(s), strategy=%s — Coded by @B3hnamR",
-             __version__, len(accounts), cfg.pool.strategy)
-
+    log_buffer = None
+    app.state.cleanup_failed = False
     try:
+        cfg.ensure_dirs()
+
+        store = Store(cfg.store.sqlite_path)
+        resources.append(("store", store.close))
+        capture = JsonlCapture(cfg.logging.capture_dir, enabled=cfg.logging.capture)
+        registry = Registry(
+            aliases=cfg.models.aliases,
+            default=cfg.models.default,
+            default_anthropic=cfg.models.default_anthropic,
+            # probe_unknown intentionally not forwarded: probing unknown ids
+            # against a plan-gated upstream burns quota for no benefit; the
+            # registry no longer implements it and the config field is inert.
+        )
+        catalog = ModelCatalog(cfg.upstream.base_url, registry)
+        resources.append(("catalog", catalog.aclose))
+
+        try:
+            accounts = load_accounts(cfg.accounts)
+        except Exception as exc:
+            log.warning("could not load accounts from %s: %s", cfg.accounts.source, exc)
+            accounts = []
+
+        from .relay_manager import RelayManager
+        relays_data_dir = (Path(cfg.accounts.dir).resolve().parent / "generator-data") if cfg.accounts.dir else Path("./generator-data")
+        relay_manager = RelayManager(data_dir=relays_data_dir)
+        # relay health loop: background ping every 5 minutes; failures feed the
+        # rotation cooldown and the dashboard health column
+        try:
+            relay_manager.start_health_loop(300)
+        except Exception:
+            log.warning("relay health loop failed to start", exc_info=True)
+
+        pool = PoolManager(cfg.pool, accounts)
+        # persist per-model parks (UNUSUAL_ACTIVITY / GEO_BLOCKED / caps) next to
+        # the sqlite store so a restart doesn't forget and re-burn every account
+        try:
+            caps_file = Path(cfg.store.sqlite_path).resolve().parent / "model-caps.json"
+            pool.set_caps_path(caps_file)
+            pool.load_caps()
+        except Exception:
+            log.warning("model-cap persistence unavailable", exc_info=True)
+        tokens = TokenManager(cfg, pool)
+        resources.append(("tokens", tokens.aclose))
+        client = UpstreamClient(cfg.upstream, relay_manager=relay_manager,
+                                pacing=cfg.models.pacing)
+        resources.append(("client", client.aclose))
+        service = ChatService(cfg, pool, tokens, client, registry, store, capture)
+
+        # feed the dashboard's log view: one ring-buffer handler on the package log
+        log_buffer = LogBuffer(capacity=1000)
+        pkg_log = logging.getLogger("zcode_gateway")
+        pkg_log.addHandler(log_buffer)
+
+        app.state.app_state = AppState(
+            cfg=cfg, pool=pool, tokens=tokens, client=client,
+            registry=registry, store=store, capture=capture, service=service,
+            limiter=RateLimiter(),
+            catalog=catalog,
+            relay_manager=relay_manager,
+        )
+        app.state.app_state.log_buffer = log_buffer
+        service._lifecycle_tasks = app.state.app_state.async_tasks
+        # pool + relay events (drained, DEAD, expiring, cooled) feed the bell
+        pool.attach_notifications(app.state.app_state.notifications)
+        relay_manager._notify = app.state.app_state.notifications
+
+        # release feed: one GitHub call on startup, then every interval; the
+        # dashboard polls this cache, never GitHub directly
+        from .updater import UpdateChecker
+        update_repo = cfg.update.repo
+        if update_repo in getattr(cfg.update, "legacy_repos", ()):
+            # config written before the repo rename: follow the current feed so
+            # existing installs receive updates without a manual config edit
+            update_repo = "B3hnamR/AutoZcoder"
+        updater = UpdateChecker(update_repo, __version__,
+                                enabled=cfg.update.enabled,
+                                interval_hours=cfg.update.interval_hours)
+        app.state.app_state.updater = updater
+        resources.append(("updater", updater.aclose))
+        if getattr(app.state, "stopping", False):
+            app.state.app_state.begin_stopping()
+
+        async def update_loop() -> None:
+            # first check is deferred: startup must never block on GitHub, and
+            # short-lived apps (tests, CLI runs) should not phone home at all
+            await asyncio.sleep(min(20.0, updater.interval_s))
+            while True:
+                try:
+                    await updater.check()
+                except Exception:
+                    log.exception("update check iteration failed")
+                await asyncio.sleep(updater.interval_s)
+
+        if not app.state.app_state.stopping:
+            tasks.append(asyncio.create_task(tokens.refresh_loop(), name="token-refresh"))
+            if cfg.update.enabled:
+                tasks.append(asyncio.create_task(update_loop(), name="update-check"))
+            if cfg.pool.balance_poll_seconds > 0:
+                tasks.append(asyncio.create_task(tokens.balance_loop(), name="balance-poll"))
+            for task in tasks:
+                app.state.app_state.async_tasks.add(task)
+                task.add_done_callback(app.state.app_state.async_tasks.discard)
+
+        log.info("zcode gateway %s up — %d account(s), strategy=%s — Coded by @B3hnamR",
+                 __version__, len(accounts), cfg.pool.strategy)
+
         yield
     finally:
-        login = getattr(app.state.app_state, "device_login", None)
-        if login is not None and getattr(login, "_task", None) is not None:
-            login.cancel()
-            login._task.cancel()
-            tasks.append(login._task)
-        pkg_log.removeHandler(log_buffer)
-        for task in tasks:
-            task.cancel()
-        for task in tasks:
+        from .linux_service import CLEANUP_SECONDS
+        deadline = time.monotonic() + CLEANUP_SECONDS
+        app.state.stopping = True
+        state = getattr(app.state, "app_state", None)
+        if state is not None:
             try:
-                await task
-            except (asyncio.CancelledError, Exception):
-                pass
-        generator = getattr(app.state.app_state, "generator", None)
+                state.begin_stopping()
+            except Exception:
+                app.state.cleanup_failed = True
+                log.warning("producer fence failed")
+            tasks.extend(state.async_tasks)
+            login = getattr(state, "device_login", None)
+            if login is not None and getattr(login, "_task", None) is not None:
+                try:
+                    login.cancel()
+                except Exception:
+                    app.state.cleanup_failed = True
+                tasks.append(login._task)
+        if log_buffer is not None:
+            pkg_log.removeHandler(log_buffer)
+        tasks = list(set(tasks))
+        for task in tasks:
+            if task.get_name() in ('verified-upstream-close', 'verified-close-wait', 'verified-pool-release', 'verified-owned-cleanup'):
+                continue
+            if not task.done() and not task.cancelling():
+                task.cancel()
+        if tasks:
+            done, pending = await asyncio.wait(tasks, timeout=max(0, deadline - time.monotonic()))
+            if pending:
+                app.state.cleanup_failed = True
+            for task in done:
+                try:
+                    task.result()
+                except (asyncio.CancelledError, Exception):
+                    pass
+        # A dedicated daemon cleanup thread, not the loop's default executor:
+        # cancelling to_thread cannot stop it and asyncio.run would wait for it.
+        # The manager cooperates via request_shutdown and a shared deadline;
+        # owned child groups are terminated even if another cleanup fails.
+        generator = getattr(state, "generator", None) if state is not None else None
+        workers = []
+        worker_errors = []
+        def launch_cleanup(name, callback):
+            def run():
+                try:
+                    callback(deadline=deadline)
+                except Exception:
+                    worker_errors.append(name)
+            thread = threading.Thread(target=run, name=f"shutdown-{name}", daemon=True)
+            workers.append(thread)
+            thread.start()
         if generator is not None:
-            await asyncio.to_thread(generator.stop_all)
-            checker = getattr(generator, "checker", None)
-            if checker is not None:
-                checker._auto_stop.set()
-        await tokens.aclose()
-        await client.aclose()
-        await catalog.aclose()
-        await updater.aclose()
-        store.close()
+            shutdown = getattr(generator, "shutdown", None)
+            if shutdown is not None:
+                launch_cleanup("generator", shutdown)
+            else:
+                # Backward-compatible injected test/third-party managers.
+                launch_cleanup("generator", lambda **kw: generator.stop_all())
+        if relay_manager is not None:
+            def close_relay(*, deadline):
+                shutdown = getattr(relay_manager, 'shutdown', None)
+                if shutdown is not None:
+                    if shutdown(deadline=deadline) is False:
+                        raise TimeoutError('relay workers are still stopping')
+                else:
+                    relay_manager.stop_health_loop(deadline=deadline)
+            launch_cleanup("relay", close_relay)
+        while any(thread.is_alive() for thread in workers) and time.monotonic() < deadline:
+            await asyncio.sleep(0.02)
+        if worker_errors or any(thread.is_alive() for thread in workers):
+            app.state.cleanup_failed = True
+            log.warning("background shutdown deadline exceeded; process containment remains required")
+        # Each acquired client and store closes independently even after failure.
+        # Await actual cancellable async I/O, not a pretend thread cancellation.
+        for name, close in reversed(resources):
+            try:
+                if name == "store" and hasattr(store, "close_before"):
+                    # Interrupt queries and bound its lock wait; never wait on the
+                    # event loop for a worker thread that ignores cancellation.
+                    result = store.close_before(deadline)
+                else:
+                    result = close()
+                if hasattr(result, "__await__"):
+                    # Allow every resource a cleanup attempt even near deadline.
+                    task = asyncio.create_task(result)
+                    done, pending = await asyncio.wait({task}, timeout=max(0.05, deadline - time.monotonic()))
+                    if pending:
+                        task.cancel()
+                        app.state.cleanup_failed = True
+                    else:
+                        task.result()
+            except (asyncio.CancelledError, Exception):
+                app.state.cleanup_failed = True
+                log.warning("resource cleanup failed: %s", name)
+
+
+class StoppingGuardMiddleware:
+    """Producer fence without buffering or proxying the ASGI send callable.
+
+    BaseHTTPMiddleware puts a memory channel and an outer streaming response
+    between the delivery owner and the socket. Passing send through is required
+    for the verified owner's write deadline and admission lease to cover the
+    actual downstream transport.
+    """
+    SAFE_PATHS = frozenset({"/", "/health", "/health/instance", "/ready", "/dash",
+                           "/dash/connection.js", "/dash/studio.css", "/dash/overview.js",
+                           "/dash/preferences.js", "/dash/usability.js", "/admin/dash/lifecycle"})
+
+    def __init__(self, app, state):
+        self.app, self.state = app, state
+
+    async def __call__(self, scope, receive, send):
+        if scope['type'] == 'http':
+            state = getattr(self.state, 'app_state', None)
+            stopping = self.state.stopping or getattr(state, 'stopping', False)
+            path = scope.get('path', '')
+            if stopping and path not in self.SAFE_PATHS:
+                message = 'gateway is stopping'
+                if path.startswith('/v1/messages'):
+                    content = anthropic_error(503, 'overloaded_error', message)
+                elif path.startswith('/v1/'):
+                    content = openai_error(503, 'service_unavailable', message)
+                else:
+                    content = {'detail': message}
+                await JSONResponse(content, status_code=503,
+                                   headers={'Retry-After': '1'})(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
 
 
 def create_app(cfg: Config | None = None) -> FastAPI:
@@ -173,6 +298,19 @@ def create_app(cfg: Config | None = None) -> FastAPI:
 
     app = FastAPI(title="Zcode Gateway", version=__version__, lifespan=lifespan)
     app.state.cfg = cfg
+    app.state.stopping = False
+    # Factory/legacy launchers retain a dashboard connection contract without
+    # claiming ownership by the managed Linux user service. Its runner replaces
+    # this identity before startup with the stronger config/context identity.
+    import hashlib
+    context = f"{getattr(cfg, '_config_file', None)}|{cfg.server.host}|{cfg.server.port}"
+    app.state.linux_identity = {
+        "schema_version": 1, "product": "autozcoder-linux", "version": __version__,
+        "instance_id": uuid4().hex, "config_id": hashlib.sha256(context.encode()).hexdigest(),
+        "mode": "embedded",
+    }
+
+    app.add_middleware(StoppingGuardMiddleware, state=app.state)
 
     # No CORS middleware on purpose: the dashboard is served same-origin and
     # every API client is a non-browser tool. `allow_origins=["*"]` let any

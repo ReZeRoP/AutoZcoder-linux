@@ -40,15 +40,23 @@ def overload_delay(cfg, retry_number, retry_after=None):
     return delay * random.uniform(.5, 1)
 
 
-async def wait_for_retry(delay, is_disconnected=None):
-    if is_disconnected is None:
+async def wait_for_retry(delay, is_disconnected=None, control=None):
+    if control is not None:
+        control.phase = 'backoff'
+        control.check()
+        delay = min(delay, control.remaining())
+    if is_disconnected is None and control is None:
         await asyncio.sleep(delay)
         return
     # FastAPI doesn't cancel a handler waiting for response headers on disconnect.
     # Check during backoff so cancelling a chat doesn't keep sending retries.
     while delay > 0:
-        if await is_disconnected():
+        if is_disconnected is not None and await is_disconnected():
             raise asyncio.CancelledError()
+        if control is not None:
+            control.check()
         part = min(delay, .5)
         await asyncio.sleep(part)
         delay -= part
+    if control is not None:
+        control.check()

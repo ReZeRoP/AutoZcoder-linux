@@ -15,11 +15,12 @@ import secrets
 import tempfile
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 import yaml
 
 from .deps import admin_key, get_state, internal_or_admin
@@ -162,8 +163,16 @@ def dashboard(request: Request) -> HTMLResponse:
                 and _peer_is_loopback(request)):
             marker = 'sessionStorage.getItem("gw-admin-key") || ""'
             injected = ('sessionStorage.getItem("gw-admin-key") || '
-                        + json.dumps(cfg.server.admin_key))
+                        + json.dumps(cfg.server.admin_key).replace("<", "\\u003c"))
             html = html.replace(marker, injected, 1)
+            identity = getattr(request.app.state, "linux_identity", None)
+            if isinstance(identity, dict):
+                from .api_health import instance_payload
+                bootstrap = json.dumps({"key": cfg.server.admin_key,
+                                        "instance": instance_payload(request)}).replace("<", "\\u003c")
+                html = html.replace("<!-- AUTOZCODER_BOOTSTRAP -->",
+                                    '<script id="autozcoder-bootstrap" type="application/json">'
+                                    + bootstrap + '</script>', 1)
     except Exception:
         pass
     if os.environ.get("AUTOZCODER_PACKAGE_MANAGED") == "1":
@@ -171,7 +180,81 @@ def dashboard(request: Request) -> HTMLResponse:
         html = html.replace('check GitHub for new releases', 'RPM-managed: update by installing a newer AutoZcoder RPM')
         html = html.replace('deploying will install it automatically (one time; Windows may ask for the admin prompt)',
                             'install the Fedora nodejs and npm packages before deploying')
-    return HTMLResponse(html)
+    return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+
+
+@router.get("/dash/connection.js")
+def dashboard_connection():
+    path = DASH_DIR / "connection.js"
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="dashboard connection module unavailable")
+    return FileResponse(path, media_type="application/javascript", headers={"Cache-Control": "no-store"})
+
+
+@router.get("/dash/studio.css")
+def dashboard_studio_styles():
+    return FileResponse(DASH_DIR / "studio.css", media_type="text/css",
+                        headers={"Cache-Control": "no-store"})
+
+
+@router.get("/dash/overview.js")
+def dashboard_overview_script():
+    return FileResponse(DASH_DIR / "overview.js", media_type="application/javascript",
+                        headers={"Cache-Control": "no-store"})
+
+
+@router.get("/dash/preferences.js")
+def dashboard_preferences_script():
+    return FileResponse(DASH_DIR / "preferences.js", media_type="application/javascript",
+                        headers={"Cache-Control": "no-store"})
+
+
+@router.get("/dash/usability.js")
+def dashboard_usability_script():
+    return FileResponse(DASH_DIR / "usability.js", media_type="application/javascript",
+                        headers={"Cache-Control": "no-store"})
+
+
+@router.get("/admin/dash/lifecycle")
+async def dash_lifecycle(request: Request, key: str = Depends(admin_key)):
+    from .api_health import instance_payload
+    return JSONResponse(instance_payload(request), headers={"Cache-Control": "no-store"})
+
+
+def _service_controller(request: Request):
+    if not (getattr(request.app.state, "linux_mode", None) == "user-service"
+            and getattr(request.app.state, "linux_managed_default", False)):
+        raise HTTPException(status_code=409, detail="controls require the managed default user service")
+    from .linux_control import ServiceController
+    return ServiceController()
+
+
+@router.get("/admin/dash/service/status")
+async def dash_service_status(request: Request, key: str = Depends(admin_key)):
+    return await asyncio.to_thread(_service_controller(request).status)
+
+
+@router.get("/admin/dash/service/autostart")
+async def dash_autostart_get(request: Request, key: str = Depends(admin_key)):
+    if not (getattr(request.app.state, "linux_mode", None) == "user-service"
+            and getattr(request.app.state, "linux_managed_default", False)):
+        return {"available": False, "enabled": False, "mode": getattr(request.app.state, "linux_mode", "foreground")}
+    result = await asyncio.to_thread(_service_controller(request).status)
+    properties = result.get("properties") or {}
+    return {"available": bool(result.get("ok")),
+            "enabled": properties.get("UnitFileState") == "enabled",
+            "mode": "user-service", "code": result.get("code", "unavailable")}
+
+
+@router.put("/admin/dash/service/autostart")
+async def dash_autostart_put(request: Request, body: dict = Body(...), key: str = Depends(admin_key)):
+    if set(body) != {"enabled"} or type(body["enabled"]) is not bool:
+        raise HTTPException(status_code=400, detail='body must be {"enabled": true or false}')
+    controller = _service_controller(request)
+    result = await asyncio.to_thread(controller.action, "enable" if body["enabled"] else "disable")
+    if not result.get("ok"):
+        raise HTTPException(status_code=503, detail="user service autostart change failed")
+    return {"available": True, "enabled": body["enabled"], "mode": "user-service"}
 
 
 def _model_ids(state) -> list[str]:
@@ -390,6 +473,8 @@ def _device_login(request: Request):
 async def login_start(request: Request, key: str = Depends(admin_key)) -> dict:
     """Begin a device-code login: returns the code + URL for the user."""
     state = get_state(request)
+    if state.stopping:
+        raise HTTPException(status_code=503, detail="gateway is stopping")
     if state.cfg.accounts.source != "accounts_dir":
         raise HTTPException(status_code=400,
                             detail="login writes account snapshots; set "
@@ -402,6 +487,8 @@ async def login_start(request: Request, key: str = Depends(admin_key)) -> dict:
     async def _add_and_probe(account):
         """New account: join the pool, then settle balance/paid-lane/plan now —
         a login that replaced an exhausted account must not read 'available'."""
+        if state.stopping:
+            return
         await state.pool.upsert(account)
         try:
             await state.tokens.check_account(account)
@@ -483,11 +570,18 @@ async def dash_shutdown(request: Request, key: str = Depends(admin_key)) -> dict
     exit is deliberate: uvicorn's should_exit would free the port but leave
     the windowless process running, which is exactly the bug this fixes.
     """
-    get_state(request)
+    state = get_state(request)
     shutdown = getattr(request.app.state, "desktop_shutdown", None)
+    linux_mode = getattr(request.app.state, "linux_mode", None)
+    if linux_mode is not None or os.name != "nt":
+        if shutdown is None:
+            raise HTTPException(status_code=503, detail="graceful shutdown callback unavailable")
+        request.app.state.stopping = True
+        state.begin_stopping()
     if shutdown is not None:
         threading.Timer(1.0, shutdown).start()
     else:
+        # Preserve the Windows exe fallback; never hard-exit managed Linux.
         threading.Timer(1.0, lambda: os._exit(0)).start()
     return {"stopping": True,
             "note": "the gateway process is exiting; you can close this window"}
@@ -538,6 +632,9 @@ async def update_download(request: Request, key: str = Depends(admin_key)) -> di
 async def update_apply(request: Request, key: str = Depends(admin_key)) -> dict:
     """Swap in the downloaded exe and relaunch (exe builds only)."""
     get_state(request)
+    if (getattr(request.app.state, "linux_mode", None) is not None
+            or os.environ.get("AUTOZCODER_PACKAGE_MANAGED") == "1"):
+        raise HTTPException(status_code=409, detail="Linux updates are package-managed")
     from . import updater as updater_mod
     try:
         updater_mod.apply_update(updater_mod.exe_dir() / updater_mod.NEW_EXE_NAME)
@@ -640,6 +737,14 @@ async def dash_notifications_clear(request: Request,
 # proxy health
 # --------------------------------------------------------------------------- #
 
+def _public_proxy_reason(reason) -> str:
+    # Ledger diagnostics may contain an authenticated URL or raw exception.
+    safe = {'timeout', 'refused', 'dns', 'auth', 'tls', 'blocked', 'dead',
+            'too_slow', 'connect', 'network', 'http_error', 'proxy_error', 'ok'}
+    value = str(reason or '').lower()
+    return value if value in safe else ('check_failed' if value else '')
+
+
 @router.get("/admin/dash/proxies/health")
 async def dash_proxy_health(request: Request, key: str = Depends(admin_key)) -> dict:
     """Health view of the proxy pool ledger (pool.json): per-proxy stats with
@@ -670,6 +775,7 @@ async def dash_proxy_health(request: Request, key: str = Depends(admin_key)) -> 
 
     try:
         from .generator import classify_proxy_entry
+        from generator.proxy_parse import redact
         raw = json.loads(pool_file.read_text(encoding="utf-8"))
         entries = raw if isinstance(raw, dict) else {}
         bad_set, used_set = _lines("proxies_bad.txt"), _lines("proxies_used.txt")
@@ -684,13 +790,14 @@ async def dash_proxy_health(request: Request, key: str = Depends(admin_key)) -> 
             kpis[{"new": "unverified"}.get(status, status)] += 1
             countries[cc] = countries.get(cc, 0) + 1
             proxies.append({
-                "url": url, "country": cc, "status": status,
+                "url": redact(url), "country": cc, "status": status,
                 "ok": status == "working", "bad": status == "bad",
                 "latency": e.get("latency") or None,
                 "checked_at": e.get("last_check") or None,
                 "checks": int(e.get("checks", 0) or 0),
                 "fails": int(e.get("fails", 0) or 0),
-                "reason": e.get("last_reason") or "",
+                "reason": _public_proxy_reason(e.get("last_reason")),
+
             })
         kpis["healthy"] = kpis["working"]          # old key, same meaning now
     except FileNotFoundError:
@@ -763,7 +870,7 @@ def _start_referral_finisher(mgr, interval_sec: int = 600) -> None:
     if getattr(mgr, "_finisher_started", False):
         return
     mgr._finisher_started = True
-    stop = threading.Event()
+    stop = mgr._shutdown_stop
 
     def _loop():
         while not stop.wait(interval_sec):
@@ -774,15 +881,19 @@ def _start_referral_finisher(mgr, interval_sec: int = 600) -> None:
                 sys.path.insert(0, str(mgr.gen_dir))
                 from invite_claim import send_one_message, referral_summary
                 for email, zjwt in list(pending.items()):
+                    if stop.is_set():
+                        break
                     try:
                         s = referral_summary(zjwt, log=lambda *a: None) or {}
+                        if stop.is_set():
+                            break
                         tasks = s.get("tasks") or {}
                         if tasks.get("send_message") or s.get("issued"):
                             mgr.remove_pending_referral(email)
                             log.info("generator: 100M referral already complete for %s", email)
                             continue
                         if tasks.get("referral_bind_code"):
-                            if send_one_message(zjwt, log=lambda *a: None):
+                            if send_one_message(zjwt, log=lambda *a: None) and not stop.is_set():
                                 mgr.remove_pending_referral(email)
                                 log.info("generator: 100M referral FINISHED for %s "
                                          "(message sent, reward issued)", email)
@@ -793,7 +904,7 @@ def _start_referral_finisher(mgr, interval_sec: int = 600) -> None:
             except Exception:
                 log.exception("generator: referral finisher loop error")
 
-    threading.Thread(target=_loop, name="referral-finisher", daemon=True).start()
+    mgr._finisher_thread = mgr.spawn_background(_loop, name="referral-finisher")
 
 
 def _find_zcodeauto(state) -> tuple[Path | None, list[Path]]:
@@ -870,6 +981,8 @@ async def generator_locate_set(request: Request, body: dict = Body(default={}),
 def _generator(request: Request):
     """The GeneratorManager for this app state, created lazily."""
     state = get_state(request)
+    if getattr(state, "stopping", False):
+        raise HTTPException(status_code=503, detail="gateway is stopping")
     mgr = getattr(state, "generator", None)
     if mgr is None:
         gen_dir, checked = _find_zcodeauto(state)
@@ -885,6 +998,8 @@ def _generator(request: Request):
         async def _settle_new_account(account_id: str) -> None:
             """A generator account just joined the pool: pull its plan and quota
             now, instead of showing an empty row until the next balance poll."""
+            if state.stopping:
+                return
             try:
                 pooled = await state.pool.find(account_id)
                 if pooled is not None:
@@ -900,6 +1015,8 @@ def _generator(request: Request):
 
             Runs in the worker's pump thread; pool mutations are scheduled onto
             the gateway's main event loop."""
+            if state.stopping or mgr._shutdown_stop.is_set():
+                return
             email = info.get("email") or ""
             chat_token = info.get("chat_token") or ""
             if not chat_token or not chat_token.startswith("eyJ"):
@@ -913,9 +1030,10 @@ def _generator(request: Request):
                 # account silently: no snapshot, no registered marker. Retry,
                 # and on a plan that hasn't propagated yet leave it UNMARKED so
                 # the start-up catch-up scan can pick it up later.
-                import time as _time
                 zjwt = None
                 for attempt in range(1, 4):
+                    if state.stop_event.is_set() or mgr._shutdown_stop.is_set():
+                        return
                     try:
                         zjwt = get_zcode_jwt(chat_token, log=lambda *a: None)
                     except Exception as exc:
@@ -931,13 +1049,16 @@ def _generator(request: Request):
                     log.warning("generator: no zcodeJWT for %s (attempt %d/3)",
                                 email, attempt)
                     if attempt < 3:
-                        _time.sleep(3)
+                        if state.stop_event.wait(3) or mgr._shutdown_stop.is_set():
+                            return
                 if not zjwt:
                     log.warning("generator: %s left unregistered — retried, will "
                                 "be picked up by the catch-up scan", email)
                     return
                 plans = []
                 for attempt in range(1, 4):
+                    if state.stop_event.is_set() or mgr._shutdown_stop.is_set():
+                        return
                     try:
                         plan_info = get_plan(zjwt) or {}
                     except Exception as exc:
@@ -949,10 +1070,13 @@ def _generator(request: Request):
                     if plans:
                         break
                     if attempt < 3:
-                        _time.sleep(3)
+                        if state.stop_event.wait(3) or mgr._shutdown_stop.is_set():
+                            return
                 if not plans:
                     log.info("generator: %s has no plan after retries — leaving "
                              "it for the catch-up scan", email)
+                    return
+                if state.stopping or mgr._shutdown_stop.is_set():
                     return
                 chosen_plan = next((p for p in plans
                                     if str(p).startswith("zcode-v3-start-plan-")
@@ -962,15 +1086,17 @@ def _generator(request: Request):
                     state.cfg.accounts.dir, email, zjwt,
                     state.cfg.upstream.fingerprint.device_mid,
                     plan=chosen_plan)
-                if account:
+                if account and not state.stopping and not mgr._shutdown_stop.is_set():
                     log.info("generator: %s joined the pool (plan=%s)", email, chosen_plan)
-                    fut = asyncio.run_coroutine_threadsafe(
-                        state.pool.upsert(account), main_loop)
+                    fut = state.schedule_background(state.pool.upsert(account), main_loop)
+                    if fut is None:
+                        return
                     fut.result(timeout=30)
+                    if state.stopping or mgr._shutdown_stop.is_set():
+                        return
                     # quota/plan refresh is network-bound and best-effort: fire and
                     # forget, so a slow upstream can never fail the registration
-                    asyncio.run_coroutine_threadsafe(
-                        _settle_new_account(account.id), main_loop)
+                    state.schedule_background(_settle_new_account(account.id), main_loop)
                     try:
                         mgr.mark_registered(email)   # done → never re-register
                     except Exception:
@@ -1006,20 +1132,26 @@ def _generator(request: Request):
             """A claim job just finished: if it claimed, revive + re-settle
             the account so a DEAD entry returns to rotation with the new
             plan instead of waiting for a manual enable."""
+            if state.stopping or mgr._shutdown_stop.is_set():
+                return
             if not claim_result_landed(getattr(job, "result", None)):
                 return
             email = (getattr(job, "email", "") or "").strip().lower()
             if not email:
                 return
             try:
-                fut = asyncio.run_coroutine_threadsafe(_revive_by_email(email),
-                                                       main_loop)
-                fut.result(timeout=60)
+                fut = state.schedule_background(_revive_by_email(email), main_loop)
+                if fut is not None:
+                    fut.result(timeout=60)
             except Exception:
                 log.exception("claim settle failed for %s", email)
 
         async def _revive_by_email(email: str) -> None:
+            if state.stopping:
+                return
             for acc in await state.pool.all():
+                if state.stopping:
+                    return
                 if (acc.email or "").strip().lower() != email:
                     continue
                 # fresh quota is live: clear hard state and re-settle reality
@@ -1070,15 +1202,18 @@ def _generator(request: Request):
 
         # catch-up: signups that never reached the pool (gateway was closed, or
         # a registration step errored) are registered now instead of being lost
-        if state.cfg.generator.enabled:
+        if (state.cfg.generator.enabled
+                and (getattr(request.app.state, "linux_mode", None) is None
+                     or request.method not in ("GET", "HEAD"))):
+            # Reconnecting/redrawing a Linux dashboard must not launch account
+            # catch-up or referral work. Retain the existing explicit flows.
             try:
                 pending = mgr.pending_accounts()
                 if pending:
                     log.info("generator: registering %d account(s) found on disk",
                              len(pending))
                     for info in pending:
-                        threading.Thread(target=register_account, args=(info,),
-                                         daemon=True).start()
+                        mgr.spawn_background(register_account, info, name="registration-catchup")
             except Exception:
                 log.exception("generator: catch-up scan failed")
             _start_referral_finisher(mgr)
@@ -1250,7 +1385,8 @@ async def setup_status(request: Request, key: str = Depends(admin_key)) -> dict:
 async def generator_stop(request: Request, body: dict = Body(...),
                          key: str = Depends(admin_key)) -> dict:
     name = body.get("name", "")
-    return {"stopped": _generator(request).stop_worker(name)}
+    manager = getattr(get_state(request), "generator", None)
+    return {"stopped": bool(manager and manager.stop_worker(name))}
 
 
 @router.post("/admin/dash/generator/stopall")
@@ -1342,7 +1478,9 @@ async def generator_proxies_run(request: Request, body: dict = Body(default={}),
 
 @router.post("/admin/dash/generator/proxies/stop")
 async def generator_proxies_stop(request: Request, key: str = Depends(admin_key)) -> dict:
-    _generator(request).checker.stop()
+    manager = getattr(get_state(request), "generator", None)
+    if manager is not None:
+        manager.checker.stop()
     return {"ok": True}
 
 
@@ -1418,19 +1556,68 @@ async def get_relays(request: Request, key: str = Depends(admin_key)) -> dict:
     return mgr.get_settings()
 
 
+def _relay_job_call(callback, *args):
+    from .relay_manager import DeploymentJobError
+    try:
+        return callback(*args)
+    except DeploymentJobError as exc:
+        return JSONResponse({'detail': exc.message, 'code': exc.code,
+                             'active_id': exc.active_id}, status_code=exc.status)
+    except ValueError as exc:
+        # Manager validation errors contain field names, never submitted secrets.
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+
+
+@router.get("/admin/dash/relays/deploy/jobs")
+async def relay_deployment_status(request: Request, id: str | None = None,
+                                  key: str = Depends(admin_key)):
+    return _relay_job_call(_relay_mgr(request).deployment_snapshot, id)
+
+
+@router.post("/admin/dash/relays/deploy/jobs", status_code=202)
+async def start_relay_deployment(request: Request, body: dict = Body(...),
+                                 key: str = Depends(admin_key)):
+    return _relay_job_call(_relay_mgr(request).start_deployment,
+                           str(body.get('type') or '').strip().lower(), body,
+                           str(body.get('operation_id') or ''))
+
+
+@router.post("/admin/dash/relays/deploy/jobs/{operation_id}/register")
+async def register_relay_deployment(request: Request, operation_id: str,
+                                    key: str = Depends(admin_key)):
+    return _relay_job_call(_relay_mgr(request).retry_deployment_registration, operation_id)
+
+
 @router.post("/admin/dash/relays/deploy")
 async def deploy_relay_endpoint(request: Request, body: dict = Body(...),
-                                key: str = Depends(admin_key)) -> dict:
+                                key: str = Depends(admin_key)):
+    """Legacy waiter over the same owned job; disconnect never replays a deploy."""
     mgr = _relay_mgr(request)
-    relay_type = str(body.get("type") or "").strip().lower()
-    try:
-        return await asyncio.to_thread(mgr.deploy_and_add, relay_type, body)
-    except Exception as e:
-        from .neterr import friendly
-        # the readable sentence goes to the dashboard; the raw cause to the log
-        log.warning("relay deploy (%s) failed: %s: %s [%s]", relay_type, type(e).__name__, e,
-                    getattr(e, "detail", ""))
-        raise HTTPException(status_code=400, detail=friendly(e))
+    relay_type = str(body.get('type') or '').strip().lower()
+    if body.get('operation_id'):
+        result = _relay_job_call(mgr.start_deployment, relay_type, body, str(body['operation_id']))
+    else:
+        result = _relay_job_call(mgr.submit_legacy_deployment, relay_type, body)
+    if isinstance(result, JSONResponse):
+        return result
+    operation_id = result['job']['id']
+    deadline = time.monotonic() + 310
+    while result['job']['status'] == 'running':
+        if await request.is_disconnected():
+            return JSONResponse({'detail': 'Deployment continues independently; retrieve its status.',
+                                 'operation_id': operation_id}, status_code=202)
+        if time.monotonic() >= deadline:
+            return JSONResponse({'detail': 'Deployment outcome is not yet known; retrieve its status.',
+                                 'operation_id': operation_id}, status_code=202)
+        await asyncio.sleep(.05)
+        result = mgr.deployment_snapshot(operation_id)
+    job = result['job']
+    if job['status'] == 'succeeded':
+        return {'ok': True, **(job.get('result') or {})}
+    error = job.get('error') or {}
+    return JSONResponse({'detail': error.get('message', 'Deployment outcome requires checking.'),
+                         'code': error.get('code', job['status']), 'operation_id': operation_id},
+                        status_code=400 if job['status'] == 'failed' else 409)
 
 
 @router.post("/admin/dash/relays/add")
@@ -1442,7 +1629,10 @@ async def add_relay_endpoint(request: Request, body: dict = Body(...),
     type_name = str(body.get("type") or "custom").strip()
     if not url:
         raise HTTPException(status_code=400, detail="Relay URL is required")
-    entry = mgr.add_relay(name, url, type_name)
+    try:
+        entry = mgr.add_relay(name, url, type_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
     return {"ok": True, "relay": entry}
 
 

@@ -62,6 +62,11 @@ async def messages(
 
     try:
         if wants_stream:
+            if state.cfg.upstream.stream_delivery == 'verified':
+                return state.service.verified_response(
+                    payload, model=upstream_model, variant=variant, dialect='anthropic',
+                    client_key=key, anthropic=True, headers=SSE_HEADERS,
+                )
             # see api_openai: open upstream first so a failure can still be
             # reported with a real status instead of a dropped connection
             handle = await state.service.open_stream(

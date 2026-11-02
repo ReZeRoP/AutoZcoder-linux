@@ -1,0 +1,20 @@
+[Unit]
+Description=AutoZcoder local API gateway
+Documentation=https://github.com/ReZeRoP/AutoZcoder-linux
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/autozcoder serve --user-service
+Restart=on-failure
+RestartSec=3
+RestartPreventExitStatus=73 78
+TimeoutStopSec=20
+KillMode=control-group
+UMask=0077
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

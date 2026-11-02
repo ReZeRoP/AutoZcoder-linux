@@ -15,6 +15,7 @@ from .deps import client_key, get_state
 from .service import NoAccountsAvailable, UpstreamFailure, aggregate_openai_stream
 from .translate_anthropic import extract_stream_error, stream_had_content
 from .upstream import openai_error
+from .stream_delivery import OwnedVerifiedResponse
 
 router = APIRouter(tags=["openai"])
 
@@ -83,6 +84,11 @@ async def chat_completions(
 
     try:
         if wants_stream:
+            if state.cfg.upstream.stream_delivery == 'verified':
+                return state.service.verified_response(
+                    payload, model=upstream_model, variant=variant, dialect='openai',
+                    client_key=key, headers=SSE_HEADERS,
+                )
             # Open upstream BEFORE returning StreamingResponse: once headers are
             # sent a status code can no longer be changed, so any failure here
             # would reach the client as a connection reset instead of an error.
@@ -143,13 +149,17 @@ async def completions(
     }
     response = await chat_completions(request, chat_body, key)
 
+    if isinstance(response, OwnedVerifiedResponse):
+        return response.map_frames(lambda source: _legacy_completion_stream(source, body.get('model') or ''))
+
     if isinstance(response, StreamingResponse):
         # Legacy clients expect text_completion chunks (choices[].text), not
         # chat.completion.chunk frames (choices[].delta) — reshape on the fly.
         return StreamingResponse(
             _legacy_completion_stream(response.body_iterator,
                                       body.get("model") or ""),
-            media_type="text/event-stream", headers=SSE_HEADERS)
+            media_type="text/event-stream", headers=SSE_HEADERS,
+            background=response.background)
 
     # reshape chat.completion -> text_completion
     payload = json.loads(response.body.decode("utf-8"))
@@ -181,6 +191,8 @@ async def _legacy_completion_stream(source: Any, model: str) -> Any:
 
     def _translate(line: str) -> bytes | None:
         line = line.strip()
+        if line.startswith(':'):
+            return (line + '\n\n').encode('utf-8')
         if not line.startswith("data:"):
             return None
         payload = line[5:].strip()
@@ -192,6 +204,8 @@ async def _legacy_completion_stream(source: Any, model: str) -> Any:
             return None
         if not isinstance(chunk, dict):
             return None
+        if 'error' in chunk:
+            return f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n".encode('utf-8')
         legacy: dict[str, Any] = {
             "id": chunk.get("id") or f"cmpl-{uuid.uuid4().hex[:24]}",
             "object": "text_completion",

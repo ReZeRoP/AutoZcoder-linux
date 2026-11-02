@@ -491,10 +491,11 @@ async def proxy_socks_ready(request: Request, key: str = Depends(admin_key)) -> 
     mgr = _generator(request)
 
     def _read():
+        auto = mgr.checker.auto_status()
         return {"socks_ready": mgr.socks_ready_count(),
-                "last_verified_at": mgr.checker.last_verified_at,
-                "auto_verify": mgr.checker.auto_verify,
-                "auto_interval_min": mgr.checker.auto_interval_min}
+                "last_verified_at": auto['last_verified_at'],
+                "auto_verify": auto['auto_verify'],
+                "auto_interval_min": auto['interval_min']}
 
     return await asyncio.to_thread(_read)
 
@@ -505,9 +506,14 @@ async def proxy_auto_verify(request: Request, body: dict = Body(...),
     """Toggle the background pool re-verify loop."""
     from .api_dash import _generator
     mgr = _generator(request)
-    enabled = bool(body.get("enabled"))
+    enabled = body.get("enabled")
     interval = body.get("interval_min")
-    return mgr.checker.set_auto_verify(enabled, interval)
+    if type(enabled) is not bool:
+        raise HTTPException(status_code=400, detail="enabled must be a boolean")
+    try:
+        return mgr.checker.set_auto_verify(enabled, interval)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
 
 
 @router.get("/dash/usage")

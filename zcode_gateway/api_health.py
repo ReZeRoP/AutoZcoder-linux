@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 router = APIRouter(tags=["ops"])
@@ -23,6 +23,31 @@ async def health(request: Request) -> dict:
     except AttributeError:
         pass
     return out
+
+
+def instance_payload(request: Request) -> dict:
+    """Explicit allowlist; instance identity is context, never authentication."""
+    identity = getattr(request.app.state, "linux_identity", None)
+    if not isinstance(identity, dict):
+        raise HTTPException(status_code=404, detail="Linux instance identity unavailable")
+    state = getattr(request.app.state, "app_state", None)
+    return {"schema_version": 1, "product": "autozcoder-linux",
+            "version": identity["version"], "instance_id": identity["instance_id"],
+            "config_id": identity["config_id"], "mode": identity["mode"],
+            "stopping": bool(getattr(request.app.state, "stopping", False)
+                             or getattr(state, "stopping", False))}
+
+
+@router.get("/health/instance")
+async def health_instance(request: Request):
+    # A reverse proxy is not a local TCP peer. Uvicorn Linux mode disables
+    # proxy-header interpretation; retain all three key-injection checks here.
+    from .api_dash import _LOOPBACK_HOSTS, _request_is_loopback, _peer_is_loopback
+    cfg = request.app.state.cfg
+    if not ((cfg.server.host or "").strip() in _LOOPBACK_HOSTS
+            and _request_is_loopback(request) and _peer_is_loopback(request)):
+        raise HTTPException(status_code=403, detail="local instance information only")
+    return JSONResponse(instance_payload(request), headers={"Cache-Control": "no-store"})
 
 
 @router.get("/ready")

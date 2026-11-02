@@ -22,4 +22,4 @@ path = bootstrap_config()
 data = yaml.safe_load(path.read_text())
 data['server']['port'] = 8790
 path.write_text(yaml.safe_dump(data, sort_keys=False))
-sys.exit(main(['--config', str(path)]))
+sys.exit(main(['serve', '--config', str(path)]))
