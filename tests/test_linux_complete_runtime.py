@@ -24,10 +24,18 @@ def test_private_runtime_selection(tmp_path, monkeypatch):
     (browsers / 'chrome').touch()
     monkeypatch.setenv('AUTOZCODER_PACKAGE_MANAGED', '1')
     monkeypatch.setenv('AUTOZCODER_RUNTIME_ROOT', str(tmp_path))
+    # configure_runtime assigns these directly: register their prior values so
+    # teardown cannot leave a fake browser path in later Playwright tests.
+    for variable in ('PLAYWRIGHT_BROWSERS_PATH', 'AUTOZCODER_CHROMIUM_EXECUTABLE',
+                     'WRANGLER_SEND_METRICS'):
+        # delenv alone records nothing when a variable was originally absent.
+        monkeypatch.setenv(variable, os.environ.get(variable, ''))
+        monkeypatch.delenv(variable, raising=False)
     configure_runtime()
     assert resolve_python() == str(wrapper)
     assert os.environ['PLAYWRIGHT_BROWSERS_PATH'] == str(tmp_path / 'browsers')
     assert os.environ['AUTOZCODER_CHROMIUM_EXECUTABLE'] == str(browsers / 'chrome')
+    assert os.environ['WRANGLER_SEND_METRICS'] == 'false'
 
 
 @pytest.mark.parametrize('valid', [True, False])

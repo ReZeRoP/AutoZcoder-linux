@@ -54,23 +54,34 @@ is still applicable.
 
 CI covers both Python 3.12/3.14, intercepted browser fixtures, Node dashboard
 tests, retained Bun sidecar source tests, runtime-error lint and Fedora packaging
-checks. Bun dependency installation occurs in CI, not at application startup.
+checks. Both Python matrix jobs run to completion independently. Their JUnit
+reports must include every required browser test with no skipped/failed cases;
+missing Playwright or Chromium cannot silently reduce browser coverage.
+Bun dependency installation occurs in CI, not at application startup.
 The upstream release-reference tests validate only the preserved workflow;
 `test_v2_fork_contract.py` independently checks the actual Linux pipeline.
 
-Local verification on 2026-11-02:
+Local verification on 2026-11-02, repeated under UTC after CI fixture fixes:
 
-- Python 3.14: **2,047 passed**, 35 skipped (unavailable Playwright, legacy Tk
-  module and Windows-only updater cases).
-- Python 3.12 with the existing bundled full Chromium: **2,082 passed**,
+- Python 3.14: **2,062 passed**, 34 skipped (unavailable Playwright and
+  Windows-only updater cases). Pure cap-formatting tests no longer require Tk.
+- Python 3.12 with the existing bundled full Chromium: **2,089 passed**,
   seven Windows-only updater cases skipped. This includes intercepted v2
-  browser fixtures and both-workspace navigation/rendering.
+  browser fixtures and both-workspace navigation/rendering. The JUnit coverage
+  gate confirmed **26 browser cases passed, none skipped**.
 - Node dashboard/template suite: **85 passed**. Fedora packaging checks:
   **16 passed**. Shell syntax, Python AST/symbol review and `git diff --check`
-  passed; runtime lint and retained Bun source regression gates run in CI.
-- The Bun/Happy DOM sidecar suite was not executed locally because its
-  dependency environment was not installed. No dependencies were installed
-  on the desktop for this integration.
+  passed. Cap-formatting/gate tests also passed under America/New_York.
+- The first published CI runs passed runtime-error lint on both Python versions,
+  the **15 Bun/Happy DOM sidecar source tests**, and (after the exact-workspace
+  trust fix) Fedora packaging. They exposed a timezone patch aimed at the old
+  GUI module and a runtime fixture leaking a temporary browser path. Those
+  fixtures are corrected; all three runtime environment variables were verified
+  restored for both originally absent and existing values. The browser gate
+  was also verified to reject the local report with unavailable Playwright.
+- The Bun suite was run in CI, not locally. No dependencies were installed
+  on the desktop for this integration. Completed CI status remains available
+  in the repository's GitHub Actions runs.
 
 No synthetic test proves that a service will accept live generation, claims,
 CAPTCHA minting or inference. Those operations require explicit authorization

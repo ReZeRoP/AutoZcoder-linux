@@ -36,6 +36,17 @@ def test_version_and_linux_release_are_package_managed():
     assert all("publish" not in name and "windows" not in name for name in workflow["jobs"])
 
 
+def test_linux_ci_requires_browser_coverage_on_both_python_versions():
+    workflow = yaml.load((ROOT / ".github/workflows/ci.yml").read_text(), Loader=yaml.BaseLoader)
+    job = workflow["jobs"]["test"]
+    assert job["strategy"]["fail-fast"] == "false"
+    assert job["strategy"]["matrix"]["python-version"] == ["3.12", "3.14"]
+    steps = job["steps"]
+    assert any("--junitxml=/tmp/autozcoder-pytest.xml" in step.get("run", "") for step in steps)
+    gate = next(step for step in steps if "check_browser_coverage.py" in step.get("run", ""))
+    assert gate["if"] == "always()"
+
+
 def test_both_workspaces_are_local_no_store_and_share_backend(tmp_path):
     with TestClient(fixture_app(tmp_path), base_url="http://127.0.0.1",
                     client=("127.0.0.1", 123)) as client:
