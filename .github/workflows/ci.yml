@@ -58,6 +58,8 @@ jobs:
       - name: Install Fedora verification tools
         run: dnf install -y git python3 rpm-build systemd systemd-rpm-macros desktop-file-utils nodejs
       - uses: actions/checkout@v4
+      - name: Trust the exact checkout inside the Fedora container
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Verify inert user service and packaging
         run: |
           python3 packaging/fedora/test-packaging.py
